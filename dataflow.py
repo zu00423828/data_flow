@@ -30,27 +30,29 @@ def download(uri, parameters):
         subprocess.run(
             f"youtube-dl '{uri}'  -f 136+140 -o 'tmp/video/{id}.mp4'", shell=False, check=True)
     except Exception:
-        print("沒有1080p，或無法下載")
         raise DownloadException()
     return save_path, parameters
 
 
-def avspeech_preprocess(data: str, args: dict):
-    id, start, end = [0, 3, 10]
-    path = os.path.join(f"tmp/process", data)
-    os.makedirs(data, exist_ok=True)
-    subprocess.run(
-        f"ffmpeg -i '{data}' -ss {start} -to {end} '{path}/%5d.png'")
-    subprocess.run(
-        f"ffmpeg -i '{data}' -ss {start} -to {end} '{path}/audio.wav'")
-
+def avspeech_preprocess(data: str, paramters: dict):
+    timestamp_list=paramters["timestamp"]
+    video_path=[]
+    for i,item in enumerate(timestamp_list): 
+        filename = data.rsplit(".mp4")[0]+"_"+str(i)
+        filename = os.path.join(f"tmp/video", filename)
+        os.makedirs(data, exist_ok=True)
+        subprocess.run(
+            f"ffmpeg -i '{data}' -ss {item['start']} -to {item['end']} '{path}/%5d.png'")
+        subprocess.run(
+            f"ffmpeg -i '{data}' -ss {item['start']} -to {item['end']} '{path}/audio.wav'")
+    return video_path
 
 def voxceleb2_preproces(data: str, paramters: dict):
     timestamp_list=paramters["timestamp"]
     video_path=[]
     for i,item in enumerate(timestamp_list): 
         filename = data.rsplit(".mp4")[0]+"_"+str(i)
-        filename = os.path.join(f"tmp/video", filename)
+        filename = os.path.join(f"tmp/process", filename)
         os.makedirs(filename, exist_ok=True)
         subprocess.call(f"ffmpeg -i {data} -ss {item['start']} -to {item['end']} {filename}/%5d.png",
                         shell=True, stdout=DEVNULL, stderr=DEVNULL)
@@ -132,28 +134,11 @@ def rotate_image(data, parameters):
         data = cv2.warpAffine(data, M, (int(fw), int(fh)))
     return data, parameters
 
-
 def move_data(data, parameters):
     shutil.move(data, parameters)
-
-
-if __name__ == "__main__":
-    # job_list=["test.mp4","https://www.youtube.com/watch?v=xWTiOqJqkk0"]
-    # parameters_list=[{"valid":True,"is_download":False,"is_avspeech":False},
-    #     {"valid":True,"is_download":True,"is_avspeech":True}]
-    job_list = [{"uri": "test.mp4", 
-    "parameters": {"valid": True,"is_avspeech":False,
-    "timestamp": [{"start": 1, "end": 5}, {"start": 6, "end": 10}, {"start": 11, "end": 15}]
-    }}
-    ,{"uri": "https://www.youtube.com/watch?v=xWTiOqJqkk0", 
-    "parameters": {"valid": True,"is_avspeech":True,
-    "timestamp": [{"start": 1, "end": 5}, {"start": 6, "end": 10}, {"start": 11, "end": 15}]
-    }}
-    ]
-    for i, item in enumerate(job_list):
-        # for key,value in item.items():
-        #     print(key,value)
-        # try:
+def main_pipeline(job_list):
+   for i, item in enumerate(job_list):
+        try:
             raw_path=item["uri"]
             paramters=item["parameters"]
             if "https://" in item["uri"]:
@@ -182,12 +167,37 @@ if __name__ == "__main__":
                     bbox_list.append(parameters["bbox"])
                     angle_list.append(parameters["angle"])
                     save_path = os.path.join(video_dir, frame_path)
-                    # print('save_path',save_path)
                     cv2.imwrite(save_path, data)
                 if parameters["valid"]:
                     np.savez(f"{video_dir}/data", landmark=landmark_list,
                              bbox=bbox_list, angle=angle_list)
                     move_data(video_dir, f"currect/{os.path.basename(video_dir)}")
-        # except Exception as e:
-        #     print(e)
-            # print("is not valid")
+                yield video_dir
+        except Exception as e:
+            print(e)
+            print("is not valid")
+        
+
+if __name__ == "__main__":
+    # job_list=["test.mp4","https://www.youtube.com/watch?v=xWTiOqJqkk0"]
+    # parameters_list=[{"valid":True,"is_download":False,"is_avspeech":False},
+    #     {"valid":True,"is_download":True,"is_avspeech":True}]
+    job_list = [{"uri": "test.mp4", 
+    "parameters": {"valid": True,"is_avspeech":False,
+    "timestamp": [{"start": 1, "end": 5}, {"start": 6, "end": 10}, {"start": 11, "end": 15}]
+    }}
+    ,{"uri": "test2.mp4", 
+    "parameters": {"valid": True,"is_avspeech":False,
+    "timestamp": [{"start": 1, "end": 5}, {"start": 6, "end": 10}, {"start": 11, "end": 15}]
+    }}
+    ,{"uri": "test3.mp4", 
+    "parameters": {"valid": True,"is_avspeech":False,
+    "timestamp": [{"start": 1, "end": 5}, {"start": 6, "end": 10}, {"start": 11, "end": 15}]
+    }}
+    # ,{"uri": "https://www.youtube.com/watch?v=xWTiOqJqkk0", 
+    # "parameters": {"valid": True,"is_avspeech":True,
+    # "timestamp": [{"start": 1, "end": 5}, {"start": 6, "end": 10}, {"start": 11, "end": 15}]
+    # }}
+    ]
+    for item in main_pipeline(job_list):
+        print("item",item)
