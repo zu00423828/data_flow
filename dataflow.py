@@ -1,4 +1,3 @@
-from sys import path
 import cv2
 import numpy as np
 import face_alignment
@@ -40,27 +39,47 @@ def avspeech_preprocess(data: str, paramters: dict):
     for i,item in enumerate(timestamp_list): 
         filename = data.rsplit(".mp4")[0]+"_"+str(i)
         filename = os.path.join(f"tmp/video", filename)
-        os.makedirs(data, exist_ok=True)
-        subprocess.run(
-            f"ffmpeg -i '{data}' -ss {item['start']} -to {item['end']} '{path}/%5d.png'")
-        subprocess.run(
-            f"ffmpeg -i '{data}' -ss {item['start']} -to {item['end']} '{path}/audio.wav'")
-    return video_path
-
-def voxceleb2_preproces(data: str, paramters: dict):
-    timestamp_list=paramters["timestamp"]
-    video_path=[]
-    for i,item in enumerate(timestamp_list): 
-        filename = data.rsplit(".mp4")[0]+"_"+str(i)
-        filename = os.path.join(f"tmp/process", filename)
         os.makedirs(filename, exist_ok=True)
         subprocess.call(f"ffmpeg -i {data} -ss {item['start']} -to {item['end']} {filename}/%5d.png",
                         shell=True, stdout=DEVNULL, stderr=DEVNULL)
-        # print(f"ffmpeg -i {data} -ss {item['start']} -to {item['end']} {filename}/%5d.png")
         subprocess.call(f"ffmpeg -i {data} -ss {item['start']} -to {item['end']} {filename}/audio.wav",
                         shell=True, stdout=DEVNULL, stderr=DEVNULL)
         video_path.append(filename)
     return video_path
+
+def voxceleb2_preproces(data: str, paramters: dict):
+    from itertools import islice
+    video_path=[]
+    split_txt_dir='txt/E0NdymcK7wg'
+    for i,item in enumerate(os.listdir(split_txt_dir)):
+        txt_path=os.path.join(split_txt_dir,item)
+        filename = data.rsplit(".mp4")[0]+"_"+str(i)
+        filename = os.path.join(f"tmp/process", filename)
+        os.makedirs(filename, exist_ok=True)
+        split_parameters=[]
+        with open(txt_path) as f:
+            for line in islice(f,7,None):
+                var=line.strip().split(" 	")
+                split_parameters.append([float(row)  for row in var ])
+        video=cv2.VideoCapture(data)
+        video.set(1,int(split_parameters[0][0]))
+        for j in range(len(split_parameters)):
+            ret,frame=video.read()
+            n,x,y,w,h=split_parameters[j]
+            x,y,w,h=x*1920,y*1080,w*1920,h*1080
+            x1=math.floor(max(0,x-w/2))
+            x2=math.ceil(min(1920,x+w/2))
+            y1=math.floor(max(0,y-h/2))
+            y2=math.ceil(min(1080,y+h/2))
+            crop_frame=frame[y1:y2,x1:x2]
+            save_path=os.path.join(filename,f"{str(j+1).zfill(5)}.png")
+            # save_path=os.path.join(filename,f"{str(n).zfill(5)}.png")
+            cv2.imwrite(save_path,crop_frame)
+        video.release()
+        video_path.append(filename)
+        subprocess.call(f"ffmpeg -i {data} {filename}/audio.wav",shell=True, stdout=DEVNULL, stderr=DEVNULL)
+    return video_path
+    # return
 
 
 def get_landmark_bbox(data: np.ndarray, parameters: dict):
@@ -136,19 +155,22 @@ def rotate_image(data, parameters):
 
 def move_data(data, parameters):
     shutil.move(data, parameters)
+
 def main_pipeline(job_list):
    for i, item in enumerate(job_list):
-        try:
+        # try:
             raw_path=item["uri"]
-            paramters=item["parameters"]
+            parameters=item["parameters"]
+            if not  parameters["valid"]:
+                continue
             if "https://" in item["uri"]:
-                raw_path = download(item["uri"],paramters )
-            if paramters["is_avspeech"]:
+                raw_path = download(item["uri"],parameters )
+            if parameters["is_avspeech"]:
                 video_dir_list = avspeech_preprocess(
-                    raw_path,paramters )
+                    raw_path,parameters )
             else:
                 video_dir_list = voxceleb2_preproces(
-                    raw_path,paramters)
+                    raw_path,parameters)
             for video_dir in video_dir_list:
                 landmark_list = []
                 angle_list = []
@@ -173,25 +195,22 @@ def main_pipeline(job_list):
                              bbox=bbox_list, angle=angle_list)
                     move_data(video_dir, f"currect/{os.path.basename(video_dir)}")
                 yield video_dir
-        except Exception as e:
-            print(e)
-            print("is not valid")
+        # except Exception as e:
+        #     print(e)
+        #     print("is not valid")
         
 
 if __name__ == "__main__":
-    # job_list=["test.mp4","https://www.youtube.com/watch?v=xWTiOqJqkk0"]
-    # parameters_list=[{"valid":True,"is_download":False,"is_avspeech":False},
-    #     {"valid":True,"is_download":True,"is_avspeech":True}]
-    job_list = [{"uri": "test.mp4", 
-    "parameters": {"valid": True,"is_avspeech":False,
+    job_list = [{"uri": "E0NdymcK7wg.mp4", 
+    "parameters": {"valid": True,"is_avspeech":True,
     "timestamp": [{"start": 1, "end": 5}, {"start": 6, "end": 10}, {"start": 11, "end": 15}]
     }}
-    ,{"uri": "test2.mp4", 
-    "parameters": {"valid": True,"is_avspeech":False,
+    ,{"uri": "E0NdymcK7wg.mp4", 
+    "parameters": {"valid": True,"is_avspeech":True,
     "timestamp": [{"start": 1, "end": 5}, {"start": 6, "end": 10}, {"start": 11, "end": 15}]
     }}
-    ,{"uri": "test3.mp4", 
-    "parameters": {"valid": True,"is_avspeech":False,
+    ,{"uri": "E0NdymcK7wg.mp4", 
+    "parameters": {"valid": False,"is_avspeech":True,
     "timestamp": [{"start": 1, "end": 5}, {"start": 6, "end": 10}, {"start": 11, "end": 15}]
     }}
     # ,{"uri": "https://www.youtube.com/watch?v=xWTiOqJqkk0", 
@@ -199,5 +218,7 @@ if __name__ == "__main__":
     # "timestamp": [{"start": 1, "end": 5}, {"start": 6, "end": 10}, {"start": 11, "end": 15}]
     # }}
     ]
-    for item in main_pipeline(job_list):
-        print("item",item)
+
+    # for item in main_pipeline(job_list):
+    #     print("item",item)
+    voxceleb2_preproces("E0NdymcK7wg.mp4",None)
