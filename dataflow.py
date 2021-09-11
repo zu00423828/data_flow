@@ -165,8 +165,33 @@ def rotate_image(data, parameters):
     return data, parameters
 def crop_data(data, parameters):
     bbox = parameters["bbox"]#.astype(np.int16)
+    radians=math.radians(parameters['angle'])
+    sin_r,cos_r=math.sin(radians),math.cos(radians)
+    x_l,y_t,x_r,y_b=bbox
+    rotate_center = parameters["landmark"][29]
+    x_l=x_l-rotate_center[0]
+    y_t=y_t-rotate_center[1]
+    x_r=x_r-rotate_center[0]
+    y_b=y_b-rotate_center[1]
+    
+    new_x1=cos_r*x_l+sin_r*y_t+rotate_center[0]
+    new_x2=cos_r*x_r+sin_r*y_t+rotate_center[0]
+    new_x3=cos_r*x_l+sin_r*y_b+rotate_center[0]
+    new_x4=cos_r*x_r+sin_r*y_b+rotate_center[0]
 
-    data = data[bbox[1]:bbox[3], bbox[0]:bbox[2]]
+    new_y1=-sin_r*x_l+cos_r*y_t+rotate_center[1]
+    new_y2=-sin_r*x_r+cos_r*y_t+rotate_center[1]
+    new_y3=-sin_r*x_l+cos_r*y_b+rotate_center[1]
+    new_y4=-sin_r*x_r+cos_r*y_b+rotate_center[1]
+
+    min_x=int(max(0,min(new_x1,new_x2,new_x3,new_x4)))
+    max_x=int(max(new_x1,new_x2,new_x3,new_x4))
+    min_y=int(max(0,min(new_y1,new_y2,new_y3,new_y4)))
+    max_y=int(max(new_y1,new_y2,new_y3,new_y4))
+    print(data.shape,min_x,min_y,max_x,max_y)
+    data = data[min_y:max_y, min_x:max_x]
+    # print(data)
+    # data = data[bbox[1]:bbox[3], bbox[0]:bbox[2]]
 
     return data, parameters
 
