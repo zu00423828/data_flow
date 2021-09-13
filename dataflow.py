@@ -3,12 +3,13 @@ import numpy as np
 import face_alignment
 import math
 import os
+from os.path import basename
 import subprocess
 import shutil
 DEVNULL = open(os.devnull, 'wb')
 # parpamerters:dict
 fa = face_alignment.FaceAlignment(
-    face_alignment.LandmarksType._2D, flip_input=False, face_detector="sfd", device="cuda")
+    face_alignment.LandmarksType._2D, flip_input=False, face_detector="blazeface", device="cuda")
 
 
 class DownloadException(Exception):
@@ -23,30 +24,28 @@ class ValidException(Exception):
 
 def download(uri, parameters):
     print(uri)
-    id = uri.rsplit("https://youtube.com/watch?v=")[-1]
+    id = uri.rsplit("watch?v=")[-1]
     try:
         save_path = f"tmp/video/{id}.mp4"
         subprocess.run(
-            f"youtube-dl '{uri}'  -f 136+140 -o 'tmp/video/{id}.mp4'", shell=False, check=True)
+            f"youtube-dl '{uri}'  -f 137+140 -o 'tmp/video/{id}.mp4'", shell=True, stdout=DEVNULL, stderr=DEVNULL)
     except Exception:
         raise DownloadException()
     return save_path, parameters
 
 
 def avspeech_preprocess(data: str, paramters: dict):
-    timestamp_list = paramters["timestamp"]
-    crop_list = paramters["bbox_crop"]
-    video_path = []
-    for i, (timestamp, crop) in enumerate(zip(timestamp_list, crop_list)):
-        filename = os.path.basename(data).rsplit('.mp4')[0]+"_"+str(i)
-        filename = os.path.join(f"tmp/video", filename)
-        os.makedirs(filename, exist_ok=True)
-        subprocess.call(f"ffmpeg -i {data} -ss {timestamp['start']} -to {timestamp['end']} -filter:v 'crop={crop['w']}:{crop['h']}:{crop['x']}:{crop['y']}' \
-            {filename}/video.mp4", shell=True, stdout=DEVNULL, stderr=DEVNULL)
-        subprocess.call(f"ffmpeg -i {data} -ss {timestamp['start']} -to {timestamp['end']} {filename}/audio.wav",
-                        shell=True, stdout=DEVNULL, stderr=DEVNULL)
-        video_path.append(filename)  # +".mp4")
-    return video_path
+    timestamp= paramters["timestamp"]
+    crop= paramters["bbox_crop"]
+    id=paramters['id']
+    filename = basename(data).rsplit('.mp4')[0]+"_"+str(id)
+    filename = os.path.join(f"tmp/video", filename)
+    os.makedirs(filename, exist_ok=True)
+    subprocess.call(f"ffmpeg -i {data} -ss {timestamp['start']} -to {timestamp['end']} -filter:v 'crop={crop['w']}:{crop['h']}:{crop['x']}:{crop['y']}' \
+        {filename}/video.mp4", shell=True, stdout=DEVNULL, stderr=DEVNULL)
+    subprocess.call(f"ffmpeg -i {data} -ss {timestamp['start']} -to {timestamp['end']} {filename}/audio.wav",
+                    shell=True, stdout=DEVNULL, stderr=DEVNULL)
+    return filename
 
 
 def voxceleb2_preproces(data: str, paramters: dict):
@@ -79,9 +78,6 @@ def voxceleb2_preproces(data: str, paramters: dict):
             x2 = math.ceil(min(1920-1, max(x2, n_x2)))
             y1 = math.floor(max(0, min(y1, n_y1)))
             y2 = math.ceil(min(1080-1, max(y2, n_y2)))
-            crop_frame = frame[y1:y2, x1:x2]
-            save_path = os.path.join(filename, f"{str(j+1).zfill(5)}.png")
-            # cv2.imwrite(save_path, crop_frame)
         video.release()
         video_path.append(filename)
         subprocess.call(f"ffmpeg -i {data} -ss {start} -to {end} -filter:v 'crop={x2-x1}:{y2-y1}:{x1}:{y1}'  {filename}/video.mp4",
@@ -187,7 +183,7 @@ def crop_data(data, parameters):
     max_x = int(max(new_x1, new_x2, new_x3, new_x4))
     min_y = int(max(0, min(new_y1, new_y2, new_y3, new_y4)))
     max_y = int(max(new_y1, new_y2, new_y3, new_y4))
-    print(data.shape, min_x, min_y, max_x, max_y)
+    # print(data.shape, min_x, min_y, max_x, max_y)
     data = data[min_y:max_y, min_x:max_x]
     # print(data)
     # data = data[bbox[1]:bbox[3], bbox[0]:bbox[2]]
@@ -200,121 +196,92 @@ def move_data(data, parameters):
 
 
 def main_pipeline(job_list):
+    last_uri=''
     for i, item in enumerate(job_list):
-        # try:
-        raw_path = item["uri"]
-        parameters = item["parameters"]
-        if not parameters["valid"]:
-            continue
-        if "https://" in item["uri"]:
-            raw_path = download(item["uri"], parameters)
-        # if parameters["is_avspeech"]:
-        video_path_list = avspeech_preprocess(
-            raw_path, parameters)
-        for video_dir in video_path_list:
+        try:
+            parameters = item["parameters"]
+            if not parameters["valid"]:
+                continue
+            if last_uri!='' and last_uri!=item["uri"]:
+                print('remove')
+                os.remove(raw_path)
+            last_uri=item["uri"]
+            raw_path = item["uri"]
+            if "https://" in item["uri"]: 
+                if not os.path.exists('tmp/video/'+item["uri"].split("watch?v=")[-1]+'.mp4'):
+                    print(('tmp/video/'+item["uri"].split("watch?v=")[-1]+'.mp4'))
+                    print("download")
+                    raw_path,parameters = download(item["uri"], parameters)
+                else:
+                    raw_path='tmp/video/'+item["uri"].split("watch?v=")[-1]+'.mp4'
+            video_dir = avspeech_preprocess(
+                raw_path, parameters)
             landmark_list = []
             angle_list = []
             bbox_list = []
             video_path = os.path.join(video_dir, 'video.mp4')
             frame_num = 1
             video = cv2.VideoCapture(video_path)
-            # try:
-            while video.isOpened():
-                ret, frame = video.read()
-                # print(video_dir,frame_num)
-                if not ret:
-                    break
-                parameters = {"valid": True}
-                data, parameters = get_landmark_bbox(frame, parameters)
-                data, parameters = eye_dist(data, parameters)
-                data, parameters = get_angle(data, parameters)
-                # data, parameters = crop_data(data, parameters)
-                data, parameters = rotate_image(data, parameters)
-                data, parameters = crop_data(data, parameters)
-                landmark_list.append(parameters["landmark"])
-                bbox_list.append(parameters["bbox"])
-                angle_list.append(parameters["angle"])
-                save_path = os.path.join(
-                    video_dir, str(frame_num).zfill(5)+".png")
-                cv2.imwrite(save_path, data)
-                frame_num += 1
-            video.release()
-            os.remove(video_path)
-            np.savez(f"{video_dir}/data", landmark=landmark_list,
-                     bbox=bbox_list, angle=angle_list)
-            move_data(
-                video_dir, f"currect/{os.path.basename(video_dir)}")
-            yield video_dir
-            # except Exception as e:
-            #     print("is not valid")
-            #     print(e)
-            #     shutil.rmtree(video_dir)
-        # except Exception as e:
-        #     print("download error or split video error")
-
-        #     print("is not valid")
+            try:
+                while video.isOpened():
+                    ret, frame = video.read()
+                    # print(video_dir,frame_num)
+                    if not ret:
+                        break
+                    parameters = {"valid": True}
+                    data, parameters = get_landmark_bbox(frame, parameters)
+                    data, parameters = eye_dist(data, parameters)
+                    data, parameters = get_angle(data, parameters)
+                    # data, parameters = crop_data(data, parameters)
+                    data, parameters = rotate_image(data, parameters)
+                    data, parameters = crop_data(data, parameters)
+                    landmark_list.append(parameters["landmark"])
+                    bbox_list.append(parameters["bbox"])
+                    angle_list.append(parameters["angle"])
+                    save_path = os.path.join(
+                        video_dir, str(frame_num).zfill(5)+".png")
+                    cv2.imwrite(save_path, data)
+                    frame_num += 1
+                video.release()
+                os.remove(video_path)
+                np.savez(f"{video_dir}/data", landmark=landmark_list,
+                            bbox=bbox_list, angle=angle_list)
+                move_data(
+                    video_dir, f"currect/{basename(video_dir)}")
+                yield video_dir
+            except Exception as e:
+                print("is not valid")
+                shutil.rmtree(video_dir)
+        except Exception as e:
+            print("download error or split video error")
 
 
 if __name__ == "__main__":
     job_list = [
-        {"uri": "video/test1.mp4",
-         "parameters": {"valid": True, "is_avspeech": True,
-                        "timestamp": [{"start": 28.84, "end": 35.16}, {"start": 39, "end": 43.44}, {"start": 60.24, "end": 69.68}],
-                        # "bbox_crop": [{'x': 800, 'y': 100, 'w': 600, 'h': 600}, {'x': 800, 'y': 100, 'w': 600, 'h': 600},
-                        #     {'x': 800, 'y': 100, 'w': 600, 'h': 600}]
-                        "bbox_crop": [{'x': 0, 'y': 0, 'w': 1920, 'h': 1080}, {'x': 0, 'y': 0, 'w': 1920, 'h': 1080},
-                                      {'x': 0, 'y': 0, 'w': 1920, 'h': 1080}]
+        {"uri": "https://youtube.com/watch?v=E0NdymcK7wg",
+            "parameters": {"id":1,"valid": True, "is_avspeech": True,
+                        "timestamp": {"start": 28.84, "end": 35.16},
+                        "bbox_crop": {'x': 0, 'y': 0, 'w': 1920, 'h': 1080}
                         }
-         },
-        {"uri": "video/test2.mp4",
-         "parameters": {"valid": True, "is_avspeech": True,
-                        "timestamp": [{"start": 28.84, "end": 35.16}, {"start": 39, "end": 43.44}, {"start": 60.24, "end": 69.68}],
-                        "bbox_crop": [{'x': 0, 'y': 0, 'w': 1920, 'h': 1080}, {'x': 0, 'y': 0, 'w': 1920, 'h': 1080},
-                                      {'x': 0, 'y': 0, 'w': 1920, 'h': 1080}]
-                        }
-         },
-        {"uri": "video/test3.mp4",
-         "parameters": {"valid": True, "is_avspeech": True,
-                        "timestamp": [{"start": 28.84, "end": 35.16}, {"start": 39, "end": 43.44}, {"start": 60.24, "end": 69.68}],
-
-                        "bbox_crop": [{'x': 0, 'y': 0, 'w': 1920, 'h': 1080}, {'x': 0, 'y': 0, 'w': 1920, 'h': 1080},
-                                      {'x': 0, 'y': 0, 'w': 1920, 'h': 1080}]
-                        }
-         }
+        },
+        {"uri": "https://youtube.com/watch?v=E0NdymcK7wg",
+            "parameters": {"id":2,"valid": True, "is_avspeech": True,
+                    "timestamp": {"start": 39, "end": 43.44},
+                    "bbox_crop": {'x': 0, 'y': 0, 'w': 1920, 'h': 1080}
+                    }
+        },
+        {"uri": "https://youtube.com/watch?v=E0NdymcK7wg",
+            "parameters": {"id":3,"valid": True, "is_avspeech": True,
+                    "timestamp":  {"start": 60.24, "end": 69.68},
+                    "bbox_crop":{'x': 0, 'y': 0, 'w': 1920, 'h': 1080}
+                    }
+        },
+        {"uri": "https://youtube.com/watch?v=sPJ365h2rxI",
+            "parameters": {"id":1,"valid": True, "is_avspeech": True,
+                    "timestamp":  {"start": 179.64, "end": 205.08},
+                    "bbox_crop":{'x': 0, 'y': 0, 'w': 1920, 'h': 1080}
+                    }
+        },
     ]
     for item in main_pipeline(job_list):
         print("item", item)
-
-    # print("hi")
-    # video_path_list=voxceleb2_preproces("E0NdymcK7wg.mp4",None)
-    # for video_dir in video_path_list:
-    #     landmark_list = []
-    #     angle_list = []
-    #     bbox_list = []
-    #     video_path=os.path.join(video_dir,'video.mp4')
-    #     frame_num = 1
-    #     video = cv2.VideoCapture(video_path)
-    #     # try:
-    #     while video.isOpened():
-    #         ret, frame = video.read()
-    #         print(video_dir,frame_num)
-    #         if not ret:
-    #             break
-    #         parameters = {"valid": True}
-    #         data, parameters = get_landmark_bbox(frame, parameters)
-    #         # data, parameters = eye_dist(data, parameters)
-    #         data, parameters = crop_data(data, parameters)
-    #         data, parameters = get_angle(data, parameters)
-    #         landmark_list.append(parameters["landmark"])
-    #         bbox_list.append(parameters["bbox"])
-    #         angle_list.append(parameters["angle"])
-    #         save_path = os.path.join(
-    #             video_dir, str(frame_num).zfill(5)+".png")
-    #         cv2.imwrite(save_path, data)
-    #         frame_num += 1
-    #     video.release()
-    #     os.remove(video_path)
-    #     np.savez(f"{video_dir}/data", landmark=landmark_list,
-    #                 bbox=bbox_list, angle=angle_list)
-    #     move_data(
-    #         video_dir, f"currect/{os.path.basename(video_dir)}")
