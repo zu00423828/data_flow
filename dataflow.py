@@ -9,7 +9,7 @@ import shutil
 DEVNULL = open(os.devnull, 'wb')
 # parpamerters:dict
 fa = face_alignment.FaceAlignment(
-    face_alignment.LandmarksType._2D, flip_input=False, face_detector="blazeface", device="cuda")
+    face_alignment.LandmarksType._2D, flip_input=False, face_detector="sfd", device="cuda")
 
 
 class DownloadException(Exception):
@@ -197,10 +197,15 @@ def move_data(data, parameters):
 
 def main_pipeline(job_list):
     last_uri=''
+    if not os.path.exists('tmp/video'):
+        os.makedirs('tmp/video')
     for i, item in enumerate(job_list):
         try:
             parameters = item["parameters"]
             if not parameters["valid"]:
+                continue
+            if 'save_path' in parameters:
+                yield parameters['save_path']
                 continue
             if last_uri!='' and last_uri!=item["uri"]:
                 print('remove')
@@ -228,7 +233,7 @@ def main_pipeline(job_list):
                     # print(video_dir,frame_num)
                     if not ret:
                         break
-                    parameters = {"valid": True}
+                    # parameters = {"valid": True}
                     data, parameters = get_landmark_bbox(frame, parameters)
                     data, parameters = eye_dist(data, parameters)
                     data, parameters = get_angle(data, parameters)
@@ -248,9 +253,10 @@ def main_pipeline(job_list):
                             bbox=bbox_list, angle=angle_list)
                 move_data(
                     video_dir, f"currect/{basename(video_dir)}")
+                video_dir=f"currect/{basename(video_dir)}"
                 yield video_dir
             except Exception as e:
-                print("is not valid")
+                print(video_dir,"is not valid")
                 shutil.rmtree(video_dir)
         except Exception as e:
             print("download error or split video error")
@@ -261,7 +267,8 @@ if __name__ == "__main__":
         {"uri": "https://youtube.com/watch?v=E0NdymcK7wg",
             "parameters": {"id":1,"valid": True, "is_avspeech": True,
                         "timestamp": {"start": 28.84, "end": 35.16},
-                        "bbox_crop": {'x': 0, 'y': 0, 'w': 1920, 'h': 1080}
+                        "bbox_crop": {'x': 0, 'y': 0, 'w': 1920, 'h': 1080},
+                        "save_path": "currect:/E0NdymcK7wg_1"
                         }
         },
         {"uri": "https://youtube.com/watch?v=E0NdymcK7wg",
