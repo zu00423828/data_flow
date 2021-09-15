@@ -36,8 +36,9 @@ from dataflow import main_pipeline
         - y0 方框右上角
         - w 方框寬度
         - h 方框高度
+    - save_path 為最後儲存的資料夾路徑(包含 png 跟 npz以及 wav檔)
 
 ## 輸出parameters
 - landmark  影片切割後的各幀的landmark(還沒校正)
 - bbox   影片切割後的各幀的bbox(還沒校正)
-- angle  影片切割後的各幀的人臉角度
+- angle  影片切割後的各幀的人臉角度(還沒校正)
