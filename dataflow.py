@@ -50,7 +50,7 @@ def download(uri, parameters):
     return save_path, parameters
 
 
-def avspeech_preprocess(data: str, paramters: dict):
+def video_split(data: str, paramters: dict):
     # timestamp = paramters["timestamp"]
     # crop = paramters["bbox_crop"]
     start,end= paramters['start'],paramters['end']
@@ -58,7 +58,6 @@ def avspeech_preprocess(data: str, paramters: dict):
     id = paramters['id']
     filename = basename(data).rsplit('.')[0]+"_"+str(id)
     filename = os.path.join(f"tmp/video", filename)
-    print(filename)
     os.makedirs(filename, exist_ok=True)
     subprocess.call(f"ffmpeg -i {data} -ss {start} -to {end} -filter:v 'crop={w}:{h}:{x0}:{y0}' \
         {filename}/video.mp4", shell=True, stdout=DEVNULL, stderr=DEVNULL)
@@ -188,7 +187,7 @@ def main_pipeline(job_list):
                 else:
                     print("download")
                     raw_path, parameters = download(uri, parameters)
-            video_dir = avspeech_preprocess(
+            video_dir = video_split(
                 raw_path, parameters)
             landmark_list = []
             angle_list = []

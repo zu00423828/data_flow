@@ -7,18 +7,18 @@ from dataflow import main_pipeline
 ## 使用範例
 ```
     job_list = [
-        {"uri": "https://youtube.com/watch?v=E0NdymcK7wg",
-            "parameters": {"id":1,"valid": True, "is_avspeech": True,
-                        "timestamp": {"start": 28.84, "end": 35.16},
-                        "bbox_crop": {'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080},
-                        # "save_path": "currect/E0NdymcK7wg_1"
-                        }
+        {
+            "uri": "https://youtube.com/watch?v=E0NdymcK7wg",
+            "id":1,"valid": True,
+             "start": 28.84, "end": 35.16,
+             'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080,
+            # "save_path": "currect/E0NdymcK7wg_1"
         },
-        {"uri": "https://youtube.com/watch?v=E0NdymcK7wg",
-            "parameters": {"id":2,"valid": True, "is_avspeech": True,
-                    "timestamp": {"start": 39, "end": 43.44},
-                    "bbox_crop": {'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080}
-                    }
+        {
+            "uri": "https://youtube.com/watch?v=E0NdymcK7wg",
+            "id":2,"valid": True,
+            "timestamp": "start": 39, "end": 43.44,
+            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
         },
     ]
     main_pipeline(jobs_list)
@@ -27,6 +27,7 @@ from dataflow import main_pipeline
 ## 參數說明
 - uri為 下載的網址
 - valid 代表可用
+-id 代表是同一個uri的第n個
 - start 開始時間
 - end 結束時間
 - x0 方框左上角
