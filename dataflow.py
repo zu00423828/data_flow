@@ -26,16 +26,18 @@ class InvalidException(Exception):
 def download(uri, parameters):
     print(uri)
     id = uri.rsplit("watch?v=")[-1]
-    yt=YouTube(uri)
-    video_itag=None
-    audio_itag=None
+    yt = YouTube(uri)
+    video_itag = None
+    audio_itag = None
     save_path = f"tmp/video/{id}"
-    videos=sorted(filter(lambda s: s.type == 'video', yt.fmt_streams), key=lambda row: int(row.resolution.replace('p', '')), reverse=True)
-    audios=sorted(filter(lambda s: s.type == 'audio', yt.fmt_streams), key=lambda row: int(row.abr.replace('kbps', '')), reverse=True)
-    audio_itag=audios[0]
-    for item in  videos:
-        if item.resolution=='1080p' and item.fps==30:
-            video_itag=item.itag
+    videos = sorted(filter(lambda s: s.type == 'video', yt.fmt_streams),
+                    key=lambda row: int(row.resolution.replace('p', '')), reverse=True)
+    audios = sorted(filter(lambda s: s.type == 'audio', yt.fmt_streams),
+                    key=lambda row: int(row.abr.replace('kbps', '')), reverse=True)
+    audio_itag = audios[0]
+    for item in videos:
+        if item.resolution == '1080p' and item.fps == 30:
+            video_itag = item.itag
             break
     if video_itag is None:
         raise InvalidException("1080p resolution not found or 30fps not found")
@@ -44,24 +46,26 @@ def download(uri, parameters):
             f"youtube-dl '{uri}'  -f {video_itag}+{audio_itag.itag} -o {save_path}", shell=True, stdout=DEVNULL, stderr=DEVNULL)
     except Exception as e:
         DownloadException("Unable to download")
-    save_path=glob(save_path+".*")[-1]
+    save_path = glob(save_path+".*")[-1]
     return save_path, parameters
 
 
 def avspeech_preprocess(data: str, paramters: dict):
-    timestamp= paramters["timestamp"]
-    crop= paramters["bbox_crop"]
-    id=paramters['id']
+    # timestamp = paramters["timestamp"]
+    # crop = paramters["bbox_crop"]
+    start,end= paramters['start'],paramters['end']
+    x0,y0,w,h= paramters['x0'],paramters['y0'],paramters['w'],paramters['h']
+    id = paramters['id']
     filename = basename(data).rsplit('.')[0]+"_"+str(id)
     filename = os.path.join(f"tmp/video", filename)
     print(filename)
     os.makedirs(filename, exist_ok=True)
-    subprocess.call(f"ffmpeg -i {data} -ss {timestamp['start']} -to {timestamp['end']} -filter:v 'crop={crop['w']}:{crop['h']}:{crop['x0']}:{crop['y0']}' \
+    subprocess.call(f"ffmpeg -i {data} -ss {start} -to {end} -filter:v 'crop={w}:{h}:{x0}:{y0}' \
         {filename}/video.mp4", shell=True, stdout=DEVNULL, stderr=DEVNULL)
-    print('check')
-    subprocess.call(f"ffmpeg -i {data} -ss {timestamp['start']} -to {timestamp['end']} {filename}/audio.wav",
+    subprocess.call(f"ffmpeg -i {data} -ss {'start'} -to {end} {filename}/audio.wav",
                     shell=True, stdout=DEVNULL, stderr=DEVNULL)
     return filename
+
 
 def get_landmark_bbox(data: np.ndarray, parameters: dict):
     max_h, max_w = data.shape[:-1]
@@ -116,7 +120,7 @@ def rotate_image(data, parameters):
         rotate_center = parameters["landmark"][29]
         M = cv2.getRotationMatrix2D(rotate_center, parameters["angle"], 1)
         h, w = data.shape[:-1]
-        data = cv2.warpAffine(data, M, (w, h))  
+        data = cv2.warpAffine(data, M, (w, h))
     return data, parameters
 
 
@@ -158,31 +162,32 @@ def move_data(data, parameters):
 
 
 def main_pipeline(job_list):
-    last_uri=''
+    last_uri = ''
     if not os.path.exists('tmp/video'):
         os.makedirs('tmp/video')
     for i, item in enumerate(job_list):
         try:
-            parameters = item["parameters"]
+            uri = item.pop('uri')
+            parameters = item
             if not parameters["valid"]:
                 continue
             if 'save_path' in parameters:
                 yield parameters['save_path']
                 continue
-            if last_uri!='' and last_uri!=item["uri"]:
+            if last_uri != '' and last_uri != uri:
                 print('remove')
-                print(last_uri,item["uri"])
-                if not "https://" in raw_path: 
+                print(last_uri, uri)
+                if not "https://" in raw_path:
                     os.remove(raw_path)
-            last_uri=item["uri"]
-            raw_path = item["uri"]
-            if "https://" in item["uri"]: 
-                tmp=glob('tmp/video/'+item["uri"].split("watch?v=")[-1]+".*")
+            last_uri = uri
+            raw_path = uri
+            if "https://" in uri:
+                tmp = glob('tmp/video/'+uri.split("watch?v=")[-1]+".*")
                 if len(tmp):
-                    raw_path=tmp[-1]
+                    raw_path = tmp[-1]
                 else:
                     print("download")
-                    raw_path,parameters = download(item["uri"], parameters)
+                    raw_path, parameters = download(uri, parameters)
             video_dir = avspeech_preprocess(
                 raw_path, parameters)
             landmark_list = []
@@ -211,14 +216,15 @@ def main_pipeline(job_list):
                 video.release()
                 os.remove(video_path)
                 np.savez(f"{video_dir}/data", landmark=landmark_list,
-                            bbox=bbox_list, angle=angle_list)
+                         bbox=bbox_list, angle=angle_list)
                 move_data(
                     video_dir, f"correct/{basename(video_dir)}")
-                video_dir=f"correct/{basename(video_dir)}"
+                video_dir = f"correct/{basename(video_dir)}"
+
                 yield video_dir
             except Exception as e:
                 print(e)
-                print(video_dir,"is not valid")
+                print(video_dir, "is not valid")
                 shutil.rmtree(video_dir)
         except Exception as e:
             print(e)
@@ -227,42 +233,42 @@ def main_pipeline(job_list):
 
 if __name__ == "__main__":
     job_list = [
-        {"uri": "https://youtube.com/watch?v=E0NdymcK7wg",
-            "parameters": {"id":1,"valid": True, "is_avspeech": True,
-                        "timestamp": {"start": 28.84, "end": 35.16},
-                        "bbox_crop": {'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080},
-                        # "save_path": "currect/E0NdymcK7wg_1"
-                        }
+        {
+            "uri": "https://youtube.com/watch?v=E0NdymcK7wg",
+            "id": 1, "valid": True,
+            "start": 28.84, "end": 35.16,
+            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080,
+            # "save_path": "currect/E0NdymcK7wg_1"
         },
-        {"uri": "https://youtube.com/watch?v=E0NdymcK7wg",
-            "parameters": {"id":2,"valid": True, "is_avspeech": True,
-                    "timestamp": {"start": 39, "end": 43.44},
-                    "bbox_crop": {'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080}
-                    }
+        {
+            "uri": "https://youtube.com/watch?v=E0NdymcK7wg",
+            "id": 2, "valid": True,
+            "start": 39, "end": 43.44,
+            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
         },
-        {"uri": "https://youtube.com/watch?v=sPJ365h2rxI",
-            "parameters": {"id":1,"valid": True, "is_avspeech": True,
-                    "timestamp":  {"start": 179.64, "end": 205.08},
-                    "bbox_crop":{'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080}
-                    }
+        {
+            "uri": "https://youtube.com/watch?v=sPJ365h2rxI",
+            "id": 1, "valid": True,
+            "start": 179.64, "end": 205.08,
+            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
         },
-        {"uri": "https://youtube.com/watch?v=0Z1r_ATrX9I",
-            "parameters": {"id":1,"valid": True, "is_avspeech": True,
-                    "timestamp":  {"start": 179.64, "end": 205.08},
-                    "bbox_crop":{'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080}
-                    }
+        {
+            "uri": "https://youtube.com/watch?v=0Z1r_ATrX9I",
+            "id": 1, "valid": True,
+            "start": 179.64, "end": 205.08,
+            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
         },
-        {"uri": "https://youtube.com/watch?v=02uFohxbJBU",
-            "parameters": {"id":1,"valid": True, "is_avspeech": True,
-                    "timestamp":  {"start": 13, "end": 20},
-                    "bbox_crop":{'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080}
-                    }
+        {
+            "uri": "https://youtube.com/watch?v=02uFohxbJBU",
+            "id": 1, "valid": True,
+            "start": 13, "end": 20,
+            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
         },
-        {"uri": "https://youtube.com/watch?v=02uFohxbJBU",
-            "parameters": {"id":1,"valid": True, "is_avspeech": True,
-                    "timestamp":  {"start": 15, "end": 32},
-                    "bbox_crop":{'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080}
-                    }
+        {
+            "uri": "https://youtube.com/watch?v=02uFohxbJBU",
+            "id": 2, "valid": True,
+            "start": 15, "end": 32,
+            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
         },
     ]
     for item in main_pipeline(job_list):
