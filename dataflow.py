@@ -34,7 +34,7 @@ def download(uri, parameters):
                     key=lambda row: int(row.resolution.replace('p', '')), reverse=True)
     audios = sorted(filter(lambda s: s.type == 'audio', yt.fmt_streams),
                     key=lambda row: int(row.abr.replace('kbps', '')), reverse=True)
-    audio_itag = audios[0]
+    audio_itag = audios[0].itag
     for item in videos:
         if item.resolution == '1080p' and item.fps == 30:
             video_itag = item.itag
@@ -42,8 +42,8 @@ def download(uri, parameters):
     if video_itag is None:
         raise InvalidException("1080p resolution not found or 30fps not found")
     try:
-        subprocess.run(
-            f"youtube-dl '{uri}'  -f {video_itag}+{audio_itag.itag} -o {save_path}", shell=True, stdout=DEVNULL, stderr=DEVNULL)
+        cmd=["youtube-dl",uri,"-f",str(video_itag)+"+"+str(audio_itag),"-o",save_path]
+        subprocess.run(args=cmd, stdout=DEVNULL, stderr=DEVNULL)
     except Exception as e:
         DownloadException("Unable to download")
     save_path = glob(save_path+".*")[-1]
@@ -51,25 +51,21 @@ def download(uri, parameters):
 
 
 def video_split(data: str, paramters: dict):
-    # timestamp = paramters["timestamp"]
-    # crop = paramters["bbox_crop"]
     start,end= paramters['start'],paramters['end']
     x0,y0,w,h= paramters['x0'],paramters['y0'],paramters['w'],paramters['h']
     id = paramters['id']
     filename = basename(data).rsplit('.')[0]+"_"+str(id)
     filename = os.path.join(f"tmp/video", filename)
     os.makedirs(filename, exist_ok=True)
-    subprocess.call(f"ffmpeg -i {data} -ss {start} -to {end} -filter:v 'crop={w}:{h}:{x0}:{y0}' \
-        {filename}/video.mp4", shell=True, stdout=DEVNULL, stderr=DEVNULL)
-    subprocess.call(f"ffmpeg -i {data} -ss {'start'} -to {end} {filename}/audio.wav",
-                    shell=True, stdout=DEVNULL, stderr=DEVNULL)
+    video_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),'-filter:v', f'crop={w}:{h}:{x0}:{y0}',filename+'/video.mp4']
+    audio_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),filename+'/audio.wav']
+    subprocess.run(video_cmd, stdout=DEVNULL, stderr=DEVNULL)
+    subprocess.run(audio_cmd, stdout=DEVNULL, stderr=DEVNULL)
     return filename
 
 
 def get_landmark_bbox(data: np.ndarray, parameters: dict):
     max_h, max_w = data.shape[:-1]
-    # print(len(fa.get_landmarks(data, return_bboxes=True)))
-    # print(type(fa.get_landmarks(data, return_bboxes=True)))
     landmarks, bboxes = fa.get_landmarks(data, return_bboxes=True)
     if landmarks is not None:
         index = np.argmax(np.array(bboxes)[:, -1])
@@ -82,7 +78,6 @@ def get_landmark_bbox(data: np.ndarray, parameters: dict):
         bbox[3] = math.ceil(min(max_h-1, bbox[3]+bbox_h*0.15))
         parameters["bbox"] = bbox
     else:
-        parameters["vaild"] = False
         raise InvalidException("get_landmark_bbox")
     return data, parameters
 
@@ -96,8 +91,6 @@ def eye_dist(data, parameters):
     eye_dist = (y_dist**2+x_dist**2)**0.5
     if eye_dist < 80:
         print(eye_dist)
-        parameters["valid"] = False
-
         raise InvalidException("eye_dist")
     return data, parameters
 
@@ -174,9 +167,8 @@ def main_pipeline(job_list):
                 yield parameters['save_path']
                 continue
             if last_uri != '' and last_uri != uri:
-                print('remove')
-                print(last_uri, uri)
                 if not "https://" in raw_path:
+                    print('remove',raw_path)
                     os.remove(raw_path)
             last_uri = uri
             raw_path = uri
@@ -219,14 +211,15 @@ def main_pipeline(job_list):
                 move_data(
                     video_dir, f"correct/{basename(video_dir)}")
                 video_dir = f"correct/{basename(video_dir)}"
-
                 yield video_dir
             except Exception as e:
                 print(e)
                 print(video_dir, "is not valid")
                 shutil.rmtree(video_dir)
+                #valid=false upload to database
         except Exception as e:
             print(e)
+            #valid=false upload to database
             # print("download error or split video error")
 
 
