@@ -4,6 +4,7 @@ import face_alignment
 import math
 import os
 from os.path import basename
+from pathlib import Path
 import subprocess
 import shutil
 from pytube import YouTube
@@ -12,7 +13,7 @@ from glob import glob
 DEVNULL = open(os.devnull, 'wb')
 # parpamerters:dict
 fa = face_alignment.FaceAlignment(
-    face_alignment.LandmarksType._2D, flip_input=False, face_detector="sfd", device="cuda")
+    face_alignment.LandmarksType._2D, flip_input=False, face_detector="blazeface")#, device="cpu")
 
 
 class DownloadException(Exception):
@@ -29,7 +30,7 @@ def download(uri, parameters):
     yt = YouTube(uri)
     video_itag = None
     audio_itag = None
-    save_path = f"tmp/video/{id}"
+    save_path = f"tmp/{id}"
     videos = sorted(filter(lambda s: s.type == 'video', yt.fmt_streams),
                     key=lambda row: int(row.resolution.replace('p', '')), reverse=True)
     audios = sorted(filter(lambda s: s.type == 'audio', yt.fmt_streams),
@@ -54,14 +55,15 @@ def video_split(data: str, paramters: dict):
     start,end= paramters['start'],paramters['end']
     x0,y0,w,h= paramters['x0'],paramters['y0'],paramters['w'],paramters['h']
     id = paramters['id']
-    filename = basename(data).rsplit('.')[0]+"_"+str(id)
+    # filename = basename(data).rsplit('.')[0]+"_"+str(id)
+    filename = Path(data).stem+"_"+str(id)
     filename = os.path.join(f"tmp/video", filename)
     os.makedirs(filename, exist_ok=True)
     video_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),'-filter:v', f'crop={w}:{h}:{x0}:{y0}',filename+'/video.mp4']
     audio_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),filename+'/audio.wav']
     subprocess.run(video_cmd, stdout=DEVNULL, stderr=DEVNULL)
     subprocess.run(audio_cmd, stdout=DEVNULL, stderr=DEVNULL)
-    return filename
+    return filename,paramters
 
 
 def get_landmark_bbox(data: np.ndarray, parameters: dict):
@@ -148,7 +150,6 @@ def crop_data(data, parameters):
 
     return data, parameters
 
-
 def move_data(data, parameters):
     shutil.move(data, parameters)
 
@@ -173,13 +174,13 @@ def main_pipeline(job_list):
             last_uri = uri
             raw_path = uri
             if "https://" in uri:
-                tmp = glob('tmp/video/'+uri.split("watch?v=")[-1]+".*")
+                tmp = glob('tmp/'+uri.split("watch?v=")[-1]+".*")
                 if len(tmp):
                     raw_path = tmp[-1]
                 else:
                     print("download")
                     raw_path, parameters = download(uri, parameters)
-            video_dir = video_split(
+            video_dir,parameters = video_split(
                 raw_path, parameters)
             landmark_list = []
             angle_list = []
@@ -195,23 +196,33 @@ def main_pipeline(job_list):
                     data, parameters = get_landmark_bbox(frame, parameters)
                     data, parameters = eye_dist(data, parameters)
                     data, parameters = get_angle(data, parameters)
-                    data, parameters = rotate_image(data, parameters)
-                    data, parameters = crop_data(data, parameters)
+                    # data, parameters = rotate_image(data, parameters)
+                    # data, parameters = crop_data(data, parameters)
                     landmark_list.append(parameters["landmark"])
                     bbox_list.append(parameters["bbox"])
                     angle_list.append(parameters["angle"])
-                    save_path = os.path.join(
-                        video_dir, str(frame_num).zfill(5)+".png")
-                    cv2.imwrite(save_path, data)
+                    # save_path = os.path.join(
+                    #     video_dir, str(frame_num).zfill(5)+".png")
+                    # cv2.imwrite(save_path, data)
                     frame_num += 1
                 video.release()
-                os.remove(video_path)
+                # os.remove(video_path)
+                landmark_buffer=BytesIO()
+                bbox_buffer=BytesIO()
+                angle_buffer=BytesIO()
+                np.save(landmark_buffer,landmark_list)
+                np.save(bbox_buffer,bbox_list)
+                np.save(angle_buffer,angle_list)
+                landmark_buffer.seek(0)
+                bbox_buffer.seek(0)
+                angle_buffer.seek(0)
                 np.savez(f"{video_dir}/data", landmark=landmark_list,
                          bbox=bbox_list, angle=angle_list)
+                output_dir = f"correct/{basename(video_dir)}"
                 move_data(
-                    video_dir, f"correct/{basename(video_dir)}")
-                video_dir = f"correct/{basename(video_dir)}"
-                yield video_dir
+                    video_dir, output_dir) #move to share dir
+                #upload to db landmark,bbox,angle,isdownload=True and save_path
+                yield output_dir
             except Exception as e:
                 print(e)
                 print(video_dir, "is not valid")
@@ -265,3 +276,5 @@ if __name__ == "__main__":
     ]
     for item in main_pipeline(job_list):
         print("item", item)
+        #read_video
+        
