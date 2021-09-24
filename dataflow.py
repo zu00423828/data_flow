@@ -11,6 +11,7 @@ from pytube import YouTube
 from io import BytesIO
 from glob import glob
 DEVNULL = open(os.devnull, 'wb')
+from youtube_speech import YoutubeSpeechDB
 # parpamerters:dict
 fa = face_alignment.FaceAlignment(
     face_alignment.LandmarksType._2D, flip_input=False, face_detector="blazeface")#, device="cpu")
@@ -24,13 +25,13 @@ class InvalidException(Exception):
     pass
 
 
-def download(uri, parameters):
+def download(uri, parameters,download_path):
     print(uri)
     id = uri.rsplit("watch?v=")[-1]
     yt = YouTube(uri)
     video_itag = None
     audio_itag = None
-    save_path = f"tmp/{id}"
+    save_path = f"{download_path}/{id}"
     videos = sorted(filter(lambda s: s.type == 'video', yt.fmt_streams),
                     key=lambda row: int(row.resolution.replace('p', '')), reverse=True)
     audios = sorted(filter(lambda s: s.type == 'audio', yt.fmt_streams),
@@ -44,25 +45,28 @@ def download(uri, parameters):
         raise InvalidException("1080p resolution not found or 30fps not found")
     try:
         cmd=["youtube-dl",uri,"-f",str(video_itag)+"+"+str(audio_itag),"-o",save_path]
-        subprocess.run(args=cmd, stdout=DEVNULL, stderr=DEVNULL)
+        subprocess.run(args=cmd, check=True,stdout=DEVNULL, stderr=DEVNULL)
     except Exception as e:
         DownloadException("Unable to download")
-    save_path = glob(save_path+".*")[-1]
+    if len(glob(save_path+".*")):
+        save_path = glob(save_path+".*")[-1]
+    else:
+        raise DownloadException("Unable to download")
     return save_path, parameters
 
 
 def video_split(data: str, paramters: dict):
     start,end= paramters['start'],paramters['end']
     x0,y0,w,h= paramters['x0'],paramters['y0'],paramters['w'],paramters['h']
-    id = paramters['id']
+    id = paramters['split']
     # filename = basename(data).rsplit('.')[0]+"_"+str(id)
-    filename = Path(data).stem+"_"+str(id)
+    filename = Path(data).stem+"_"+str(id)+'.mp4'
     filename = os.path.join(f"tmp/video", filename)
-    os.makedirs(filename, exist_ok=True)
-    video_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),'-filter:v', f'crop={w}:{h}:{x0}:{y0}',filename+'/video.mp4']
-    audio_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),filename+'/audio.wav']
+    # os.makedirs(filename, exist_ok=True)
+    video_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),'-filter:v', f'crop={w}:{h}:{x0}:{y0}',filename,'-n']#+'/video.mp4']
+    # audio_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),filename+'/audio.wav']
     subprocess.run(video_cmd, stdout=DEVNULL, stderr=DEVNULL)
-    subprocess.run(audio_cmd, stdout=DEVNULL, stderr=DEVNULL)
+    # subprocess.run(audio_cmd, stdout=DEVNULL, stderr=DEVNULL)
     return filename,paramters
 
 
@@ -154,127 +158,109 @@ def move_data(data, parameters):
     shutil.move(data, parameters)
 
 
-def main_pipeline(job_list):
+def main_pipeline(db_path,download_path,tmp_path,correct_path):
     last_uri = ''
-    if not os.path.exists('tmp/video'):
-        os.makedirs('tmp/video')
-    for i, item in enumerate(job_list):
-        try:
-            uri = item.pop('uri')
-            parameters = item
-            if not parameters["valid"]:
-                continue
-            if 'save_path' in parameters:
-                yield parameters['save_path']
-                continue
-            if last_uri != '' and last_uri != uri:
-                if not "https://" in raw_path:
-                    print('remove',raw_path)
-                    os.remove(raw_path)
-            last_uri = uri
-            raw_path = uri
-            if "https://" in uri:
-                tmp = glob('tmp/'+uri.split("watch?v=")[-1]+".*")
-                if len(tmp):
-                    raw_path = tmp[-1]
-                else:
-                    print("download")
-                    raw_path, parameters = download(uri, parameters)
-            video_dir,parameters = video_split(
-                raw_path, parameters)
-            landmark_list = []
-            angle_list = []
-            bbox_list = []
-            video_path = os.path.join(video_dir, 'video.mp4')
-            frame_num = 1
-            video = cv2.VideoCapture(video_path)
-            try:
-                while video.isOpened():
-                    ret, frame = video.read()
-                    if not ret:
-                        break
-                    data, parameters = get_landmark_bbox(frame, parameters)
-                    data, parameters = eye_dist(data, parameters)
-                    data, parameters = get_angle(data, parameters)
-                    # data, parameters = rotate_image(data, parameters)
-                    # data, parameters = crop_data(data, parameters)
-                    landmark_list.append(parameters["landmark"])
-                    bbox_list.append(parameters["bbox"])
-                    angle_list.append(parameters["angle"])
-                    # save_path = os.path.join(
-                    #     video_dir, str(frame_num).zfill(5)+".png")
-                    # cv2.imwrite(save_path, data)
-                    frame_num += 1
-                video.release()
-                # os.remove(video_path)
-                landmark_buffer=BytesIO()
-                bbox_buffer=BytesIO()
-                angle_buffer=BytesIO()
-                np.save(landmark_buffer,landmark_list)
-                np.save(bbox_buffer,bbox_list)
-                np.save(angle_buffer,angle_list)
-                landmark_buffer.seek(0)
-                bbox_buffer.seek(0)
-                angle_buffer.seek(0)
-                np.savez(f"{video_dir}/data", landmark=landmark_list,
-                         bbox=bbox_list, angle=angle_list)
-                output_dir = f"correct/{basename(video_dir)}"
-                move_data(
-                    video_dir, output_dir) #move to share dir
-                #upload to db landmark,bbox,angle,isdownload=True and save_path
-                yield output_dir
-            except Exception as e:
-                print(e)
-                print(video_dir, "is not valid")
-                shutil.rmtree(video_dir)
-                #valid=false upload to database
-        except Exception as e:
-            print(e)
-            #valid=false upload to database
-            # print("download error or split video error")
+    if not os.path.exists(download_path):
+        os.makedirs(download_path)
+    if not os.path.exists(tmp_path):
+        os.makedirs(tmp_path)
+    if not os.path.exists(correct_path):
+        os.makedirs(correct_path)
+    db=YoutubeSpeechDB(db_path)
+    while True:
+        with db.session(limit=200, dataset_type=None) as sess:
+            jobs = db.list_jobs(processing_ticket_id=sess.processing_ticket_id)
+            assert len(jobs) > 0
+            for job in jobs:
+                try:
+                    id=job.pop('id')
+                    uri = job.pop('uri')
+                    parameters = job
+                    if not parameters["valid"]:
+                        continue
+                    if parameters['path'] is not None:
+                        yield parameters['path'],parameters['landmarks'],parameters['bboxes'],parameters['angles']
+                        continue
+                    if last_uri != '' and last_uri != uri:
+                        if not "https://" in raw_path:
+                            print('remove',raw_path)
+                            os.remove(raw_path)
+                    last_uri = uri
+                    raw_path = uri
+                    if "https://" in uri:
+                        tmp = glob(download_path+uri.split("watch?v=")[-1]+".*")
+                        if len(tmp):
+                            raw_path = tmp[-1]
+                        else:
+                            print("download")
+                            raw_path, parameters = download(uri, parameters,download_path)
+                    video_path,parameters = video_split(
+                        raw_path, parameters)
+                    landmark_list = []
+                    angle_list = []
+                    bbox_list = []
+                    # video_path = os.path.join(video_path, 'video.mp4')
+                    frame_num = 1
+                    video = cv2.VideoCapture(video_path)
+                    try:
+                        while video.isOpened():
+                            ret, frame = video.read()
+                            if not ret:
+                                break
+                            data, parameters = get_landmark_bbox(frame, parameters)
+                            data, parameters = eye_dist(data, parameters)
+                            data, parameters = get_angle(data, parameters)
+                            # data, parameters = rotate_image(data, parameters)
+                            # data, parameters = crop_data(data, parameters)
+                            landmark_list.append(parameters["landmark"])
+                            bbox_list.append(parameters["bbox"])
+                            angle_list.append(parameters["angle"])
+                            # save_path = os.path.join(
+                            #     video_dir, str(frame_num).zfill(5)+".png")
+                            # cv2.imwrite(save_path, data)
+                            frame_num += 1
+                        video.release()
+                        # os.remove(video_path)
+                        landmark_buffer=BytesIO()
+                        bbox_buffer=BytesIO()
+                        angle_buffer=BytesIO()
+                        np.save(landmark_buffer,landmark_list)
+                        np.save(bbox_buffer,bbox_list)
+                        np.save(angle_buffer,angle_list)
+                        landmark_buffer.seek(0)
+                        bbox_buffer.seek(0)
+                        angle_buffer.seek(0)
+                        # np.savez(f"{video_dir}/data", landmark=landmark_list,
+                        #          bbox=bbox_list, angle=angle_list)
+                        # output_path = f"correct/{basename(video_path)}"
+                        output_path=os.path.join(correct_path,basename(video_path))
+                        move_data(
+                            video_path, output_path) #move to share dir
+                        #upload to db landmark,bbox,angle,isdownload=True and save_path
+                        db.update_job(youtube_speech_id=id,valid=True,path=output_path,landmarks=landmark_buffer.read(),bboxes=bbox_buffer.read(),angles=angle_buffer.read())
+                        yield video_path,np.array(landmark_list),np.array(bbox_list),np.array(angle_list)
+                    except Exception as e:
+                        print(e)
+                        db.update_job(youtube_speech_id=id,valid=False)
+                        print(video_path, "is invalid")
+                        os.remove(video_path)
+                        #valid=false upload to database
+                except Exception as e:
+                    print(e)
+                    if str(e) in "HTTP Error 429: Too Many Requests":
+                        continue
+                    else:
+                        db.update_job(youtube_speech_id=id,valid=False)
+                    # valid=false upload to database
+                    print("download error or split video error")
 
 
 if __name__ == "__main__":
-    job_list = [
-        {
-            "uri": "https://youtube.com/watch?v=E0NdymcK7wg",
-            "id": 1, "valid": True,
-            "start": 28.84, "end": 35.16,
-            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080,
-            # "save_path": "currect/E0NdymcK7wg_1"
-        },
-        {
-            "uri": "https://youtube.com/watch?v=E0NdymcK7wg",
-            "id": 2, "valid": True,
-            "start": 39, "end": 43.44,
-            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
-        },
-        {
-            "uri": "https://youtube.com/watch?v=sPJ365h2rxI",
-            "id": 1, "valid": True,
-            "start": 179.64, "end": 205.08,
-            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
-        },
-        {
-            "uri": "https://youtube.com/watch?v=0Z1r_ATrX9I",
-            "id": 1, "valid": True,
-            "start": 179.64, "end": 205.08,
-            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
-        },
-        {
-            "uri": "https://youtube.com/watch?v=02uFohxbJBU",
-            "id": 1, "valid": True,
-            "start": 13, "end": 20,
-            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
-        },
-        {
-            "uri": "https://youtube.com/watch?v=02uFohxbJBU",
-            "id": 2, "valid": True,
-            "start": 15, "end": 32,
-            'x0': 0, 'y0': 0, 'w': 1920, 'h': 1080
-        },
-    ]
-    for item in main_pipeline(job_list):
-        print("item", item)
-        #read_video
+    shareroot='/run/user/1000/gvfs/smb-share:server=192.168.10.25,share=shared/youtube-speech/'
+    db_path=shareroot+'youtube_speech.sqlite'
+    download_path=shareroot+'tmp/'
+    tmp_path=shareroot+'tmp/video/'
+    correct_path=shareroot+'correct/'
+    for item in main_pipeline(db_path,download_path,tmp_path,correct_path):
+        pass
         
