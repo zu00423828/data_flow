@@ -1,3 +1,4 @@
+from youtube_speech import YoutubeSpeechDB
 import cv2
 import numpy as np
 import face_alignment
@@ -11,10 +12,9 @@ from pytube import YouTube
 from io import BytesIO
 from glob import glob
 DEVNULL = open(os.devnull, 'wb')
-from youtube_speech import YoutubeSpeechDB
 # parpamerters:dict
 fa = face_alignment.FaceAlignment(
-    face_alignment.LandmarksType._2D, flip_input=False, face_detector="blazeface")#, device="cpu")
+    face_alignment.LandmarksType._2D, flip_input=False, face_detector="blazeface")  # , device="cpu")
 
 
 class DownloadException(Exception):
@@ -25,7 +25,7 @@ class InvalidException(Exception):
     pass
 
 
-def download(uri, parameters,download_path):
+def download(uri, parameters, download_path):
     print(uri)
     id = uri.rsplit("watch?v=")[-1]
     yt = YouTube(uri)
@@ -44,8 +44,9 @@ def download(uri, parameters,download_path):
     if video_itag is None:
         raise InvalidException("1080p resolution not found or 30fps not found")
     try:
-        cmd=["youtube-dl",uri,"-f",str(video_itag)+"+"+str(audio_itag),"-o",save_path]
-        subprocess.run(args=cmd, check=True,stdout=DEVNULL, stderr=DEVNULL)
+        cmd = ["youtube-dl", uri, "-f",
+               str(video_itag)+"+"+str(audio_itag), "-o", save_path]
+        subprocess.run(args=cmd, check=True, stdout=DEVNULL, stderr=DEVNULL)
     except Exception as e:
         DownloadException("Unable to download")
     if len(glob(save_path+".*")):
@@ -55,19 +56,20 @@ def download(uri, parameters,download_path):
     return save_path, parameters
 
 
-def video_split(data: str, paramters: dict):
-    start,end= paramters['start'],paramters['end']
-    x0,y0,w,h= paramters['x0'],paramters['y0'],paramters['w'],paramters['h']
+def video_split(data: str, paramters: dict, tmp_path):
+    start, end = paramters['start'], paramters['end']
+    x0, y0, w, h = paramters['x0'], paramters['y0'], paramters['w'], paramters['h']
     id = paramters['split']
     # filename = basename(data).rsplit('.')[0]+"_"+str(id)
     filename = Path(data).stem+"_"+str(id)+'.mp4'
-    filename = os.path.join(f"tmp/video", filename)
+    filename = os.path.join(tmp_path, filename)
     # os.makedirs(filename, exist_ok=True)
-    video_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),'-filter:v', f'crop={w}:{h}:{x0}:{y0}',filename,'-n']#+'/video.mp4']
+    video_cmd = ['ffmpeg', '-i', data, '-ss', str(start), '-to', str(
+        end), '-filter:v', f'crop={w}:{h}:{x0}:{y0}', filename, '-n']  # +'/video.mp4']
     # audio_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),filename+'/audio.wav']
     subprocess.run(video_cmd, stdout=DEVNULL, stderr=DEVNULL)
     # subprocess.run(audio_cmd, stdout=DEVNULL, stderr=DEVNULL)
-    return filename,paramters
+    return filename, paramters
 
 
 def get_landmark_bbox(data: np.ndarray, parameters: dict):
@@ -154,11 +156,12 @@ def crop_data(data, parameters):
 
     return data, parameters
 
+
 def move_data(data, parameters):
     shutil.move(data, parameters)
 
 
-def main_pipeline(db_path,download_path,tmp_path,correct_path):
+def main_pipeline(db_path, download_path, tmp_path, correct_path):
     last_uri = ''
     if not os.path.exists(download_path):
         os.makedirs(download_path)
@@ -166,36 +169,38 @@ def main_pipeline(db_path,download_path,tmp_path,correct_path):
         os.makedirs(tmp_path)
     if not os.path.exists(correct_path):
         os.makedirs(correct_path)
-    db=YoutubeSpeechDB(db_path)
+    db = YoutubeSpeechDB(db_path)
     while True:
-        with db.session(limit=200, dataset_type=None) as sess:
+        with db.session(limit=20, dataset_type=None) as sess:
             jobs = db.list_jobs(processing_ticket_id=sess.processing_ticket_id)
             assert len(jobs) > 0
             for job in jobs:
                 try:
-                    id=job.pop('id')
+                    id = job.pop('id')
                     uri = job.pop('uri')
                     parameters = job
                     if not parameters["valid"]:
                         continue
                     if parameters['path'] is not None:
-                        yield parameters['path'],parameters['landmarks'],parameters['bboxes'],parameters['angles']
+                        yield parameters['path'], parameters['landmarks'], parameters['bboxes'], parameters['angles']
                         continue
                     if last_uri != '' and last_uri != uri:
                         if not "https://" in raw_path:
-                            print('remove',raw_path)
+                            print('remove', raw_path)
                             os.remove(raw_path)
                     last_uri = uri
                     raw_path = uri
                     if "https://" in uri:
-                        tmp = glob(download_path+uri.split("watch?v=")[-1]+".*")
+                        tmp = glob(download_path +
+                                   uri.split("watch?v=")[-1]+".*")
                         if len(tmp):
                             raw_path = tmp[-1]
                         else:
                             print("download")
-                            raw_path, parameters = download(uri, parameters,download_path)
-                    video_path,parameters = video_split(
-                        raw_path, parameters)
+                            raw_path, parameters = download(
+                                uri, parameters, download_path)
+                    video_path, parameters = video_split(
+                        raw_path, parameters, tmp_path)
                     landmark_list = []
                     angle_list = []
                     bbox_list = []
@@ -207,7 +212,8 @@ def main_pipeline(db_path,download_path,tmp_path,correct_path):
                             ret, frame = video.read()
                             if not ret:
                                 break
-                            data, parameters = get_landmark_bbox(frame, parameters)
+                            data, parameters = get_landmark_bbox(
+                                frame, parameters)
                             data, parameters = eye_dist(data, parameters)
                             data, parameters = get_angle(data, parameters)
                             # data, parameters = rotate_image(data, parameters)
@@ -221,46 +227,47 @@ def main_pipeline(db_path,download_path,tmp_path,correct_path):
                             frame_num += 1
                         video.release()
                         # os.remove(video_path)
-                        landmark_buffer=BytesIO()
-                        bbox_buffer=BytesIO()
-                        angle_buffer=BytesIO()
-                        np.save(landmark_buffer,landmark_list)
-                        np.save(bbox_buffer,bbox_list)
-                        np.save(angle_buffer,angle_list)
+                        landmark_buffer = BytesIO()
+                        bbox_buffer = BytesIO()
+                        angle_buffer = BytesIO()
+                        np.save(landmark_buffer, landmark_list)
+                        np.save(bbox_buffer, bbox_list)
+                        np.save(angle_buffer, angle_list)
                         landmark_buffer.seek(0)
                         bbox_buffer.seek(0)
                         angle_buffer.seek(0)
                         # np.savez(f"{video_dir}/data", landmark=landmark_list,
                         #          bbox=bbox_list, angle=angle_list)
                         # output_path = f"correct/{basename(video_path)}"
-                        output_path=os.path.join(correct_path,basename(video_path))
+                        output_path = os.path.join(
+                            correct_path, basename(video_path))
                         move_data(
-                            video_path, output_path) #move to share dir
-                        #upload to db landmark,bbox,angle,isdownload=True and save_path
-                        db.update_job(youtube_speech_id=id,valid=True,path=output_path,landmarks=landmark_buffer.read(),bboxes=bbox_buffer.read(),angles=angle_buffer.read())
-                        yield video_path,np.array(landmark_list),np.array(bbox_list),np.array(angle_list)
+                            video_path, output_path)  # move to share dir
+                        # upload to db landmark,bbox,angle,isdownload=True and save_path
+                        db.update_job(youtube_speech_id=id, valid=True, path=output_path, landmarks=landmark_buffer.read()
+                            , bboxes=bbox_buffer.read(), angles=angle_buffer.read())
+                        yield video_path, np.array(landmark_list), np.array(bbox_list), np.array(angle_list)
                     except Exception as e:
                         print(e)
-                        db.update_job(youtube_speech_id=id,valid=False)
+                        db.update_job(youtube_speech_id=id, valid=False)
                         print(video_path, "is invalid")
                         os.remove(video_path)
-                        #valid=false upload to database
+                        # valid=false upload to database
                 except Exception as e:
                     print(e)
                     if str(e) in "HTTP Error 429: Too Many Requests":
                         continue
                     else:
-                        db.update_job(youtube_speech_id=id,valid=False)
+                        db.update_job(youtube_speech_id=id, valid=False)
                     # valid=false upload to database
                     print("download error or split video error")
 
 
 if __name__ == "__main__":
-    shareroot='/run/user/1000/gvfs/smb-share:server=192.168.10.25,share=shared/youtube-speech/'
-    db_path=shareroot+'youtube_speech.sqlite'
-    download_path=shareroot+'tmp/'
-    tmp_path=shareroot+'tmp/video/'
-    correct_path=shareroot+'correct/'
-    for item in main_pipeline(db_path,download_path,tmp_path,correct_path):
+    shareroot = '/home/yuan/share/youtube-speech/'
+    db_path = shareroot+'youtube_speech.sqlite'
+    download_path = shareroot+'tmp/'
+    tmp_path = shareroot+'tmp/video/'
+    correct_path = shareroot+'correct/'
+    for item in main_pipeline(db_path, download_path, tmp_path, correct_path):
         pass
-        
