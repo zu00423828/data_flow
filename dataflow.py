@@ -178,7 +178,7 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
         correct_path=os.path.join(share_root,'correct')
     else:
         db_path=share_root
-        correct_path=os.apth.join(os.path.dirname(),'correct')
+        correct_path=os.path.join(os.path.dirname(),'correct')
     last_uri = ''
     if not os.path.exists(download_path):
         os.makedirs(download_path)

@@ -9,34 +9,28 @@ from multiprocessing import Pool
 
 
 class JobSession:
-    def __init__(self, connection: sqlite3.Connection, limit=10, dataset_type=None, unfished_jobs=True):
+    def __init__(self, connection: sqlite3.Connection, limit=10, dataset_type=None):
         self.conn = connection
-        self.cur = self.conn.cursor()
-        self.cur.execute('PRAGMA foreign_keys = ON;')
         self.limit = limit
         self.processing_ticket_id: int = None
         self.tic = None
         self.dataset_type = dataset_type
-        self.unfished_jobs = unfished_jobs
 
     def __enter__(self):
         insert_ticket = """INSERT INTO processing_ticket
         (value) VALUES (:value)
         """
         hex = uuid4().hex
-        self.cur.execute(insert_ticket, {'value': hex})
+        cur = self.conn.cursor()
+        cur.execute('PRAGMA foreign_keys = ON;')
+        cur.execute(insert_ticket, {'value': hex})
         self.conn.commit()
-        self.cur.execute("""SELECT id FROM processing_ticket WHERE value = :value""", {
+        cur.execute("""SELECT id FROM processing_ticket WHERE value = :value""", {
             "value": hex,
         })
-        self.processing_ticket_id = self.cur.fetchone()['id']
+        self.processing_ticket_id = cur.fetchone()['id']
 
         where = """AND y.path IS NULL
-                AND y.valid = true"""
-        if self.unfished_jobs is None:
-            where = ""
-        elif not self.unfished_jobs:
-            where = """AND y.path IS NOT NULL
                 AND y.valid = true"""
 
         dataset_type = "" if self.dataset_type is None else f"AND d.value = '{self.dataset_type}'"
@@ -56,7 +50,7 @@ class JobSession:
         )
         """.format(where=where, dataset_type=dataset_type)
 
-        self.cur.execute(script, {
+        cur.execute(script, {
             'processing_ticket_id': self.processing_ticket_id,
             'limit': self.limit,
         })
@@ -75,8 +69,10 @@ class JobSession:
             self.conn.rollback()
 
         try:
-            self.cur.execute("""DELETE FROM processing_ticket WHERE id = :id""",
-                             {'id': self.processing_ticket_id})
+            cur = self.conn.cursor()
+            cur.execute('PRAGMA foreign_keys = ON;')
+            cur.execute("""DELETE FROM processing_ticket WHERE id = :id""",
+                        {'id': self.processing_ticket_id})
             self.conn.commit()
         except Exception as err:
             self.conn.rollback()
@@ -202,8 +198,8 @@ class YoutubeSpeechDB:
             print("Add job failed: {}".format(err))
             self.conn.rollback()
 
-    def session(self, limit=10, dataset_type=None, unfished_jobs=True):
-        return JobSession(self.conn, limit=limit, dataset_type=dataset_type, unfished_jobs=unfished_jobs)
+    def session(self, limit=10, dataset_type=None):
+        return JobSession(self.conn, limit=limit, dataset_type=dataset_type)
 
     def list_jobs(self, processing_ticket_id: int) -> List[dict]:
         """
@@ -344,7 +340,7 @@ class YoutubeSpeech:
             if i % 10000 == 0:
                 print("collect {} rows".format(i))
             rows.append(row)
-        
+
         return cls(pd.DataFrame(rows))
 
     def to_db(self, path: str, dataset_type: str):
@@ -381,7 +377,8 @@ class YoutubeSpeech:
             db.cur.execute(insert_uri, {'value': uri})
             db.cur.execute(find_uri, {'value': uri})
             uri_id = db.cur.fetchone()['id']
-            db.add_job(uri_id, segments, dataset_type_id=dataset_type_id, autocommit=False)
+            db.add_job(uri_id, segments,
+                       dataset_type_id=dataset_type_id, autocommit=False)
             i += 1
 
             if i % 10240 == 0:
