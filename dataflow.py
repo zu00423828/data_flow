@@ -199,7 +199,7 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
                     if not parameters["valid"]:
                         continue
                     if parameters['path'] is not None:
-                        yield parameters['path'], parameters['landmarks'], parameters['bboxes'], parameters['angles']
+                        # yield parameters['path'], parameters['landmarks'], parameters['bboxes'], parameters['angles']
                         continue
                     if last_uri != '' and last_uri != uri:
                         if not "https://" in raw_path:
@@ -225,7 +225,6 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
                     video = cv2.VideoCapture(video_path)
                     fps=video.get(5)
                     frame_count=video.get(7)
-                    print(fps,frame_count)
                     try:
                         while video.isOpened():
                             ret, frame = video.read()
