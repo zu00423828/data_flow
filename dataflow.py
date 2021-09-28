@@ -1,9 +1,11 @@
 from youtube_speech import YoutubeSpeechDB
+import sys
 import cv2
 import numpy as np
 import face_alignment
 import math
 import os
+import hashlib
 from os.path import basename
 from pathlib import Path
 import subprocess
@@ -24,6 +26,8 @@ class DownloadException(Exception):
 class InvalidException(Exception):
     pass
 
+class MovefileException(Exception):
+    pass
 
 def download(uri, parameters, download_path):
     print(uri)
@@ -157,11 +161,24 @@ def crop_data(data, parameters):
     return data, parameters
 
 
-def move_data(data, parameters):
-    shutil.move(data, parameters)
+def move_data(data, output_path):
+    subprocess.run(['cp',data,output_path],stdout=DEVNULL,stderr=DEVNULL)
+    source_md5=hashlib.md5(open(data,'rb').read()).hexdigest()
+    target_md5=hashlib.md5(open(output_path,'rb').read()).hexdigest()
+    if source_md5!=target_md5:
+        print(source_md5,target_md5)
+        os.remove(output_path)
+        raise MovefileException('md5 is different')
+    else:
+        os.remove(data)
 
-
-def main_pipeline(db_path, download_path, tmp_path, correct_path):
+def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
+    if os.path.isdir(share_root):
+        db_path=os.path.join(share_root,'youtube_speech.sqlite')
+        correct_path=os.path.join(share_root,'correct')
+    else:
+        db_path=share_root
+        correct_path=os.apth.join(os.path.dirname(),'correct')
     last_uri = ''
     if not os.path.exists(download_path):
         os.makedirs(download_path)
@@ -204,9 +221,11 @@ def main_pipeline(db_path, download_path, tmp_path, correct_path):
                     landmark_list = []
                     angle_list = []
                     bbox_list = []
-                    # video_path = os.path.join(video_path, 'video.mp4')
                     frame_num = 1
                     video = cv2.VideoCapture(video_path)
+                    fps=video.get(5)
+                    frame_count=video.get(7)
+                    print(fps,frame_count)
                     try:
                         while video.isOpened():
                             ret, frame = video.read()
@@ -221,12 +240,8 @@ def main_pipeline(db_path, download_path, tmp_path, correct_path):
                             landmark_list.append(parameters["landmark"])
                             bbox_list.append(parameters["bbox"])
                             angle_list.append(parameters["angle"])
-                            # save_path = os.path.join(
-                            #     video_dir, str(frame_num).zfill(5)+".png")
-                            # cv2.imwrite(save_path, data)
                             frame_num += 1
                         video.release()
-                        # os.remove(video_path)
                         landmark_buffer = BytesIO()
                         bbox_buffer = BytesIO()
                         angle_buffer = BytesIO()
@@ -236,18 +251,18 @@ def main_pipeline(db_path, download_path, tmp_path, correct_path):
                         landmark_buffer.seek(0)
                         bbox_buffer.seek(0)
                         angle_buffer.seek(0)
-                        # np.savez(f"{video_dir}/data", landmark=landmark_list,
-                        #          bbox=bbox_list, angle=angle_list)
-                        # output_path = f"correct/{basename(video_path)}"
                         output_path = os.path.join(
                             correct_path, basename(video_path))
                         move_data(
                             video_path, output_path)  # move to share dir
                         # upload to db landmark,bbox,angle,isdownload=True and save_path
                         db.update_job(youtube_speech_id=id, valid=True, path=output_path, landmarks=landmark_buffer.read()
-                            , bboxes=bbox_buffer.read(), angles=angle_buffer.read())
+                            , bboxes=bbox_buffer.read(), angles=angle_buffer.read(),fps=fps,frame_count=frame_count)
                         yield video_path, np.array(landmark_list), np.array(bbox_list), np.array(angle_list)
+                    except MovefileException:
+                        os._exit(0)
                     except Exception as e:
+                        video.release()
                         print(e)
                         db.update_job(youtube_speech_id=id, valid=False)
                         print(video_path, "is invalid")
@@ -264,10 +279,8 @@ def main_pipeline(db_path, download_path, tmp_path, correct_path):
 
 
 if __name__ == "__main__":
-    shareroot = '/home/yuan/share/youtube-speech/'
-    db_path = shareroot+'youtube_speech.sqlite'
-    download_path = shareroot+'tmp/'
-    tmp_path = shareroot+'tmp/video/'
-    correct_path = shareroot+'correct/'
-    for item in main_pipeline(db_path, download_path, tmp_path, correct_path):
+    share_root = '/home/yuan/share/youtube-speech/'
+    download_path = '/tmp/'
+    tmp_path = '/tmp/video/'
+    for item in main_pipeline(share_root, download_path, tmp_path):
         pass

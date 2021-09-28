@@ -25,10 +25,10 @@ class JobSession:
         """
         hex = uuid4().hex
         self.cur.execute(insert_ticket, {'value': hex})
+        self.conn.commit()
         self.cur.execute("""SELECT id FROM processing_ticket WHERE value = :value""", {
             "value": hex,
         })
-        self.conn.commit()
         self.processing_ticket_id = self.cur.fetchone()['id']
 
         where = """AND y.path IS NULL
@@ -139,6 +139,8 @@ class YoutubeSpeechDB:
             landmarks BLOB NULL,
             bboxes BLOB NULL,
             angles BLOB NULL,
+            fps REAL NULL,
+            frame_count INTEGER NULL,
             FOREIGN KEY(uri_id) REFERENCES uri(id) ON DELETE CASCADE ON UPDATE CASCADE,
             FOREIGN KEY(dataset_type_id) REFERENCES dataset_type(id) ON DELETE CASCADE ON UPDATE CASCADE,
             UNIQUE(uri_id, split)
@@ -147,14 +149,16 @@ class YoutubeSpeechDB:
         self.conn.commit()
 
     def update_job(self, youtube_speech_id: int, valid: bool, path: str = None,
-                   landmarks=None, bboxes=None, angles=None):
+                   landmarks=None, bboxes=None, angles=None, fps=None, frame_count=None):
         script = """
         UPDATE youtube_speech
         SET path = :path,
             valid = :valid,
             landmarks = :landmarks,
             bboxes = :bboxes,
-            angles = :angles
+            angles = :angles,
+            fps = :fps,
+            frame_count = :frame_count
         WHERE
             id = :youtube_speech_id
         """
@@ -165,6 +169,8 @@ class YoutubeSpeechDB:
             'landmarks': landmarks,
             'bboxes': bboxes,
             'angles': angles,
+            'fps': fps,
+            'frame_count': frame_count,
         })
         self.conn.commit()
 
@@ -246,14 +252,15 @@ def _collect_vox(job):
     filepath, youtube_id = job
     df = pd.read_csv(filepath, sep='\t', skiprows=7, header=None)
     df.columns = ['FRAME', 'X0', 'Y0', 'W', 'H']
-    df['X1'] = df['X0'] + df['W']
-    df['Y1'] = df['Y0'] + df['H']
+    df['Y1'] = (df['Y0'] + df['H'])
+    df['Y0'] = (df['Y0'] - df['H'] * 0.1)
+    df['X1'] = (df['X0'] + df['W'])
     start = df.iloc[0]['FRAME'] / 25.0
     end = df.iloc[-1]['FRAME'] / 25.0
-    x0 = int(df['X0'].min() * 1920)
-    y0 = int(df['Y0'].min() * 1080)
-    x1 = int(df['X1'].max() * 1920)
-    y1 = int(df['Y1'].max() * 1080)
+    x0 = max(int(df['X0'].min() * 1920), 0)
+    y0 = max(int(df['Y0'].min() * 1080), 0)
+    x1 = min(int(df['X1'].max() * 1920), 1920)
+    y1 = min(int(df['Y1'].max() * 1080), 1080)
     w = x1 - x0
     h = y1 - y0
     row = {
@@ -266,6 +273,7 @@ def _collect_vox(job):
         'H': h,
     }
     return row
+
 
 class YoutubeSpeech:
 
