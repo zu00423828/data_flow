@@ -281,7 +281,5 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
 
 if __name__ == "__main__":
     share_root = '/home/yuan/share/youtube-speech/'
-    download_path = '/tmp/'
-    tmp_path = '/tmp/video/'
-    for item in main_pipeline(share_root, download_path, tmp_path):
+    for item in main_pipeline(share_root):
         pass
