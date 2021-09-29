@@ -87,6 +87,7 @@ class YoutubeSpeechDB:
         self.conn = connect(path, timeout=100)
         self.conn.row_factory = Row
         self.cur = self.conn.cursor()
+        self.cur.execute('PRAGMA foreign_keys = ON;')
         self._init_tables()
 
     def __delete__(self, instance):

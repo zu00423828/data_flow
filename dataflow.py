@@ -1,4 +1,4 @@
-from youtube_speech import YoutubeSpeechDB
+from .youtube_speech import YoutubeSpeechDB
 import sys
 import cv2
 import numpy as np
@@ -30,7 +30,7 @@ class MovefileException(Exception):
     pass
 
 def download(uri, parameters, download_path):
-    print(uri)
+
     id = uri.rsplit("watch?v=")[-1]
     yt = YouTube(uri)
     video_itag = None
@@ -46,8 +46,10 @@ def download(uri, parameters, download_path):
             video_itag = item.itag
             break
     if video_itag is None:
+        print(uri)
         raise InvalidException("1080p resolution not found or 30fps not found")
     try:
+        print("download:",uri)
         cmd = ["youtube-dl", uri, "-f",
                str(video_itag)+"+"+str(audio_itag), "-o", save_path]
         subprocess.run(args=cmd, check=True, stdout=DEVNULL, stderr=DEVNULL)
@@ -81,7 +83,7 @@ def get_landmark_bbox(data: np.ndarray, parameters: dict):
     landmarks, bboxes = fa.get_landmarks(data, return_bboxes=True)
     if landmarks is not None:
         index = np.argmax(np.array(bboxes)[:, -1])
-        parameters["landmark"] = landmarks[index]
+        parameters["landmark"] = landmarks[index].astype(np.int16)
         bbox = bboxes[index][:-1].astype(np.int16)
         bbox_w, bbox_h = bbox[2:]-bbox[:2]
         bbox[0] = math.floor(max(0, bbox[0]-bbox_w*0.15))
@@ -102,8 +104,7 @@ def eye_dist(data, parameters):
     x_dist, y_dist = right_eye-left_eye
     eye_dist = (y_dist**2+x_dist**2)**0.5
     if eye_dist < 80:
-        print(eye_dist)
-        raise InvalidException("eye_dist")
+        raise InvalidException("eye_dist:"+str(eye_dist))
     return data, parameters
 
 
@@ -187,6 +188,7 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
     if not os.path.exists(correct_path):
         os.makedirs(correct_path)
     db = YoutubeSpeechDB(db_path)
+    error_download_uri={'uri':''}
     while True:
         with db.session(limit=20, dataset_type=None) as sess:
             jobs = db.list_jobs(processing_ticket_id=sess.processing_ticket_id)
@@ -211,9 +213,12 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
                         tmp = glob(download_path +
                                    uri.split("watch?v=")[-1]+".*")
                         if len(tmp):
+                            print('download file is exists:',tmp[-1])
                             raw_path = tmp[-1]
+                        elif uri in error_download_uri['uri']:
+                            db.update_job(youtube_speech_id=id,valid=False)
+                            continue
                         else:
-                            print("download")
                             raw_path, parameters = download(
                                 uri, parameters, download_path)
                     video_path, parameters = video_split(
@@ -274,9 +279,10 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
                     if "HTTP Error 429: Too Many Requests" in str(e):
                         continue
                     else:
+                        error_download_uri['uri']=uri
                         db.update_job(youtube_speech_id=id, valid=False)
                     # valid=false upload to database
-                    print("download error or split video error")
+                    # print("download error or split video error")
 
 
 if __name__ == "__main__":
