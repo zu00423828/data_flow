@@ -222,6 +222,8 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
                     angle_list = []
                     bbox_list = []
                     frame_num = 1
+                    assert os.path.exists(video_path)
+                    assert os.stat(video_path).st_size!=0, Exception('is empty file')
                     video = cv2.VideoCapture(video_path)
                     fps=video.get(5)
                     frame_count=video.get(7)
@@ -269,7 +271,7 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
                         # valid=false upload to database
                 except Exception as e:
                     print(e)
-                    if str(e) in "HTTP Error 429: Too Many Requests":
+                    if "HTTP Error 429: Too Many Requests" in str(e):
                         continue
                     else:
                         db.update_job(youtube_speech_id=id, valid=False)
