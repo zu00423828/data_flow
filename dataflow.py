@@ -1,5 +1,4 @@
-from .youtube_speech import YoutubeSpeechDB
-import sys
+from youtube_speech import YoutubeSpeechDB
 import cv2
 import numpy as np
 import face_alignment
@@ -9,12 +8,10 @@ import hashlib
 from os.path import basename
 from pathlib import Path
 import subprocess
-import shutil
 from pytube import YouTube
 from io import BytesIO
 from glob import glob
 DEVNULL = open(os.devnull, 'wb')
-# parpamerters:dict
 fa = face_alignment.FaceAlignment(
     face_alignment.LandmarksType._2D, flip_input=False, face_detector="blazeface")  # , device="cpu")
 
@@ -73,6 +70,7 @@ def video_split(data: str, paramters: dict, tmp_path):
     video_cmd = ['ffmpeg', '-i', data, '-ss', str(start), '-to', str(
         end), '-filter:v', f'crop={w}:{h}:{x0}:{y0}', filename, '-n']  # +'/video.mp4']
     # audio_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),filename+'/audio.wav']
+    print('split',data,'->',filename)
     subprocess.run(video_cmd, stdout=DEVNULL, stderr=DEVNULL)
     # subprocess.run(audio_cmd, stdout=DEVNULL, stderr=DEVNULL)
     return filename, paramters
@@ -206,14 +204,18 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
                     last_uri = uri
                     raw_path = uri
                     if "https://" in uri:
+                        if uri in error_download_uri['uri']:
+                            db.update_job(youtube_speech_id=id,valid=False)
+                            continue
                         tmp = glob(download_path +
                                    uri.split("watch?v=")[-1]+".*")
                         if len(tmp):
-                            print('download file is exists:',tmp[-1])
-                            raw_path = tmp[-1]
-                        elif uri in error_download_uri['uri']:
-                            db.update_job(youtube_speech_id=id,valid=False)
-                            continue
+                            if tmp[-1].count('.')>1:
+                                raw_path, parameters = download(
+                                    uri, parameters, download_path)
+                            else:
+                                print('download file is exists:',tmp[-1])
+                                raw_path = tmp[-1]
                         else:
                             raw_path, parameters = download(
                                 uri, parameters, download_path)
