@@ -1,4 +1,4 @@
-from youtube_speech import YoutubeSpeechDB
+from .youtube_speech import YoutubeSpeechDB
 import cv2
 import numpy as np
 import face_alignment
