@@ -46,7 +46,7 @@ def download(uri, parameters, download_path):
             video_itag = item.itag
             break
     if video_itag is None:
-        print(uri)
+        print('uri:',uri)
         raise InvalidException("1080p resolution not found or 30fps not found")
     try:
         print("download:",uri)
@@ -173,13 +173,9 @@ def move_data(data, output_path):
     else:
         os.remove(data)
 
-def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
-    if os.path.isdir(share_root):
-        db_path=os.path.join(share_root,'youtube_speech.sqlite')
-        correct_path=os.path.join(share_root,'correct')
-    else:
-        db_path=share_root
-        correct_path=os.path.join(os.path.dirname(),'correct')
+def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
+    assert os.path.isdir(share_root),Exception('share_root is not dir')
+    correct_path=os.path.join(share_root,'correct')
     last_uri = ''
     if not os.path.exists(download_path):
         os.makedirs(download_path)
@@ -187,10 +183,10 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
         os.makedirs(tmp_path)
     if not os.path.exists(correct_path):
         os.makedirs(correct_path)
-    db = YoutubeSpeechDB(db_path)
+    db = YoutubeSpeechDB(ip_address)
     error_download_uri={'uri':''}
     while True:
-        with db.session(limit=20, dataset_type=None) as sess:
+        with db.session() as sess:
             jobs = db.list_jobs(processing_ticket_id=sess.processing_ticket_id)
             assert len(jobs) > 0
             for job in jobs:
@@ -261,8 +257,9 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
                             correct_path, basename(video_path))
                         move_data(
                             video_path, output_path)  # move to share dir
+                        save_path=output_path.replace(share_root,'')
                         # upload to db landmark,bbox,angle,isdownload=True and save_path
-                        db.update_job(youtube_speech_id=id, valid=True, path=output_path, landmarks=landmark_buffer.read()
+                        db.update_job(youtube_speech_id=id, valid=True, path=save_path, landmarks=landmark_buffer.read()
                             , bboxes=bbox_buffer.read(), angles=angle_buffer.read(),fps=fps,frame_count=frame_count)
                         yield video_path, np.array(landmark_list), np.array(bbox_list), np.array(angle_list)
                     except MovefileException:
@@ -287,5 +284,5 @@ def main_pipeline(share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
 
 if __name__ == "__main__":
     share_root = '/home/yuan/share/youtube-speech/'
-    for item in main_pipeline(share_root):
+    for item in main_pipeline(ip_address='192.168.10.25',share_root=share_root):
         pass
