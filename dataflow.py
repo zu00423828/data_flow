@@ -23,8 +23,10 @@ class DownloadException(Exception):
 class InvalidException(Exception):
     pass
 
+
 class MovefileException(Exception):
     pass
+
 
 def download(uri, parameters, download_path):
 
@@ -43,10 +45,10 @@ def download(uri, parameters, download_path):
             video_itag = item.itag
             break
     if video_itag is None:
-        print('uri:',uri)
+        print('uri:', uri)
         raise InvalidException("1080p resolution not found or 30fps not found")
     try:
-        print("download:",uri)
+        print("download:", uri)
         cmd = ["youtube-dl", uri, "-f",
                str(video_itag)+"+"+str(audio_itag), "-o", save_path]
         subprocess.run(args=cmd, check=True, stdout=DEVNULL, stderr=DEVNULL)
@@ -70,7 +72,7 @@ def video_split(data: str, paramters: dict, tmp_path):
     video_cmd = ['ffmpeg', '-i', data, '-ss', str(start), '-to', str(
         end), '-filter:v', f'crop={w}:{h}:{x0}:{y0}', filename, '-n']  # +'/video.mp4']
     # audio_cmd=['ffmpeg','-i',data,'-ss',str(start),'-to',str(end),filename+'/audio.wav']
-    print('split',data,'->',filename)
+    print('split', data, '->', filename)
     subprocess.run(video_cmd, stdout=DEVNULL, stderr=DEVNULL)
     # subprocess.run(audio_cmd, stdout=DEVNULL, stderr=DEVNULL)
     return filename, paramters
@@ -161,19 +163,20 @@ def crop_data(data, parameters):
 
 
 def move_data(data, output_path):
-    subprocess.run(['cp',data,output_path],stdout=DEVNULL,stderr=DEVNULL)
-    source_md5=hashlib.md5(open(data,'rb').read()).hexdigest()
-    target_md5=hashlib.md5(open(output_path,'rb').read()).hexdigest()
-    if source_md5!=target_md5:
-        print(source_md5,target_md5)
+    subprocess.run(['cp', data, output_path], stdout=DEVNULL, stderr=DEVNULL)
+    source_md5 = hashlib.md5(open(data, 'rb').read()).hexdigest()
+    target_md5 = hashlib.md5(open(output_path, 'rb').read()).hexdigest()
+    if source_md5 != target_md5:
+        print(source_md5, target_md5)
         os.remove(output_path)
         raise MovefileException('md5 is different')
     else:
         os.remove(data)
 
-def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/video/'):
-    assert os.path.isdir(share_root),Exception('share_root is not dir')
-    correct_path=os.path.join(share_root,'correct')
+
+def main_pipeline(ip_address, share_root, download_path='/tmp/', tmp_path='/tmp/video/',database='speech',dataset_type=None):
+    assert os.path.isdir(share_root), Exception('share_root is not dir')
+    correct_path = os.path.join(share_root, 'correct')
     last_uri = ''
     if not os.path.exists(download_path):
         os.makedirs(download_path)
@@ -181,10 +184,10 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
         os.makedirs(tmp_path)
     if not os.path.exists(correct_path):
         os.makedirs(correct_path)
-    db = YoutubeSpeechDB(ip_address)
-    error_download_uri=''
+    db = YoutubeSpeechDB(ip_address,database=database)
+    error_download_uri = ''
     while True:
-        with db.session() as sess:
+        with db.session(dataset_type=dataset_type) as sess:
             jobs = db.list_jobs(processing_ticket_id=sess.processing_ticket_id)
             assert len(jobs) > 0
             for job in jobs:
@@ -205,24 +208,24 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
                     raw_path = uri
                     if "https://" in uri:
                         if uri == error_download_uri:
-                            db.update_job(youtube_speech_id=id,valid=False)
+                            db.update_job(youtube_speech_id=id, valid=False)
                             continue
                         tmp = glob(download_path +
                                    uri.split("watch?v=")[-1]+".*")
                         if len(tmp):
-                            if tmp[-1].count('.')>1:
+                            if tmp[-1].count('.') > 1:
                                 raw_path, parameters = download(
                                     uri, parameters, download_path)
                             else:
-                                print('download file is exists:',tmp[-1])
+                                print('download file is exists:', tmp[-1])
                                 raw_path = tmp[-1]
                         else:
                             raw_path, parameters = download(
                                 uri, parameters, download_path)
                     else:
-                        raw_path=os.pat.join(share_root,uri)
+                        raw_path = os.pat.join(share_root, uri)
                         if not os.path.exists(raw_path):
-                            db.update_job(youtube_speech_id=id,valid=False)
+                            db.update_job(youtube_speech_id=id, valid=False)
                             continue
                     video_path, parameters = video_split(
                         raw_path, parameters, tmp_path)
@@ -230,10 +233,11 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
                     angle_list = []
                     bbox_list = []
                     assert os.path.exists(video_path)
-                    assert os.stat(video_path).st_size!=0, Exception('is empty file')
+                    assert os.stat(video_path).st_size != 0, Exception(
+                        'is empty file')
                     video = cv2.VideoCapture(video_path)
-                    fps=video.get(5)
-                    frame_count=video.get(7)
+                    fps = video.get(5)
+                    frame_count = video.get(7)
                     try:
                         while video.isOpened():
                             ret, frame = video.read()
@@ -262,10 +266,10 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
                             correct_path, basename(video_path))
                         move_data(
                             video_path, output_path)  # move to share dir
-                        save_path=output_path.replace(share_root,'')
+                        save_path = output_path.replace(share_root, '')
                         # upload to db landmark,bbox,angle,isdownload=True and save_path
-                        db.update_job(youtube_speech_id=id, valid=True, path=save_path, landmarks=landmark_buffer.read()
-                            , bboxes=bbox_buffer.read(), angles=angle_buffer.read(),fps=fps,frame_count=frame_count)
+                        db.update_job(youtube_speech_id=id, valid=True, path=save_path, landmarks=landmark_buffer.read(
+                        ), bboxes=bbox_buffer.read(), angles=angle_buffer.read(), fps=fps, frame_count=frame_count)
                         yield video_path, np.array(landmark_list), np.array(bbox_list), np.array(angle_list)
                     except MovefileException:
                         os._exit(0)
@@ -281,7 +285,7 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
                     if "HTTP Error 429: Too Many Requests" in str(e):
                         continue
                     else:
-                        error_download_uri=uri
+                        error_download_uri = uri
                         db.update_job(youtube_speech_id=id, valid=False)
                     # valid=false upload to database
                     # print("download error or split video error")
@@ -289,5 +293,5 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
 
 if __name__ == "__main__":
     share_root = '/home/yuan/share/youtube-speech/'
-    for item in main_pipeline(ip_address='192.168.10.25',share_root=share_root):
+    for item in main_pipeline(ip_address='192.168.10.25', share_root=share_root):
         pass
