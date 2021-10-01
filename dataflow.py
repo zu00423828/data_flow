@@ -182,7 +182,7 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
     if not os.path.exists(correct_path):
         os.makedirs(correct_path)
     db = YoutubeSpeechDB(ip_address)
-    error_download_uri={'uri':''}
+    error_download_uri=''
     while True:
         with db.session() as sess:
             jobs = db.list_jobs(processing_ticket_id=sess.processing_ticket_id)
@@ -204,7 +204,7 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
                     last_uri = uri
                     raw_path = uri
                     if "https://" in uri:
-                        if uri in error_download_uri['uri']:
+                        if uri == error_download_uri:
                             db.update_job(youtube_speech_id=id,valid=False)
                             continue
                         tmp = glob(download_path +
@@ -219,12 +219,16 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
                         else:
                             raw_path, parameters = download(
                                 uri, parameters, download_path)
+                    else:
+                        raw_path=os.pat.join(share_root,uri)
+                        if not os.path.exists(raw_path):
+                            db.update_job(youtube_speech_id=id,valid=False)
+                            continue
                     video_path, parameters = video_split(
                         raw_path, parameters, tmp_path)
                     landmark_list = []
                     angle_list = []
                     bbox_list = []
-                    frame_num = 1
                     assert os.path.exists(video_path)
                     assert os.stat(video_path).st_size!=0, Exception('is empty file')
                     video = cv2.VideoCapture(video_path)
@@ -244,7 +248,6 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
                             landmark_list.append(parameters["landmark"])
                             bbox_list.append(parameters["bbox"])
                             angle_list.append(parameters["angle"])
-                            frame_num += 1
                         video.release()
                         landmark_buffer = BytesIO()
                         bbox_buffer = BytesIO()
@@ -278,7 +281,7 @@ def main_pipeline(ip_address,share_root, download_path='/tmp/', tmp_path='/tmp/v
                     if "HTTP Error 429: Too Many Requests" in str(e):
                         continue
                     else:
-                        error_download_uri['uri']=uri
+                        error_download_uri=uri
                         db.update_job(youtube_speech_id=id, valid=False)
                     # valid=false upload to database
                     # print("download error or split video error")
