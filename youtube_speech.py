@@ -175,6 +175,7 @@ class YoutubeSpeechDB:
             mel MEDIUMBLOB NULL,
             fps FLOAT NULL,
             frame_count SMALLINT UNSIGNED NULL,
+            shift_frames TINYINT UNSIGNED NULL,
             FOREIGN KEY(uri_id) REFERENCES uri(id) ON DELETE CASCADE ON UPDATE CASCADE,
             FOREIGN KEY(dataset_type_id) REFERENCES dataset_type(id) ON DELETE CASCADE ON UPDATE CASCADE,
             UNIQUE KEY `uri_split_id` (`uri_id`, `split`),
