@@ -223,7 +223,7 @@ def main_pipeline(ip_address, share_root, download_path='/tmp/', tmp_path='/tmp/
                             raw_path, parameters = download(
                                 uri, parameters, download_path)
                     else:
-                        raw_path = os.pat.join(share_root, uri)
+                        raw_path = os.path.join(share_root, uri)
                         if not os.path.exists(raw_path):
                             db.update_job(youtube_speech_id=id, valid=False)
                             continue
