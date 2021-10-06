@@ -189,7 +189,9 @@ def main_pipeline(ip_address, share_root, download_path='/tmp/', tmp_path='/tmp/
     while True:
         with db.session(dataset_type=dataset_type) as sess:
             jobs = db.list_jobs(processing_ticket_id=sess.processing_ticket_id)
-            assert len(jobs) > 0
+            if len(jobs) == 0:
+                print("No job")
+                break
             for job in jobs:
                 try:
                     id = job.pop('id')

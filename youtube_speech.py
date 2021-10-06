@@ -59,6 +59,11 @@ class JobSession:
                 'limit': self.limit,
             })
             ids = [row['id'] for row in cur.fetchall()]
+            if len(ids) == 0:
+                print("No jobs selected")
+                self.tic = datetime.now()
+                cur.close()
+                return self
 
             script = """UPDATE uri
             SET processing_ticket_id = %(processing_ticket_id)s
