@@ -50,10 +50,12 @@ def download(uri, parameters, download_path):
     try:
         print("download:", uri)
         cmd = ["youtube-dl", uri, "-f",
-               str(video_itag)+"+"+str(audio_itag), "-o", save_path]
+               str(video_itag)+"+"+str(audio_itag),
+               "--socket-timeout", "300",
+               "-o", save_path]
         subprocess.run(args=cmd, check=True, stdout=DEVNULL, stderr=DEVNULL)
     except Exception as e:
-        DownloadException("Unable to download")
+        raise DownloadException(f"Unable to download: {e}")
     if len(glob(save_path+".*")):
         save_path = glob(save_path+".*")[-1]
     else:
