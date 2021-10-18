@@ -49,7 +49,7 @@ def download(uri, parameters, download_path):
         raise InvalidException("1080p resolution not found or 30fps not found")
     try:
         print("download:", uri)
-        cmd = ["youtube-dl", uri, "-f",
+        cmd = ["youtube-dl", uri,"-r","1M", "-f",
                str(video_itag)+"+"+str(audio_itag),
                "--socket-timeout", "300",
                "-o", save_path]
